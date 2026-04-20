@@ -757,11 +757,13 @@ class ChatStreamRuntime:
         # Queue items come from QueueService.add_message, so all behavioral
         # fields must already exist here.
         selected_persona_name = queued_msg["selected_persona_name"]
+        model = MODELS[queued_msg["model_id"]]
         system_prompt = build_system_prompt_for_chat(
             user_settings,
+            agent_kind=model.agent_kind,
             selected_persona_name=selected_persona_name,
         )
-        context_window = MODELS[queued_msg["model_id"]].context_window
+        context_window = model.context_window
         resolved_session_id = session_id_override or chat.session_id
         return ChatStreamRequest(
             prompt=queued_msg["content"],

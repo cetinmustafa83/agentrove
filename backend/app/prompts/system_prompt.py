@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING
 
+from app.services.acp.adapters import AgentKind, PERSONAS_SUPPORTED_AGENTS
+
 if TYPE_CHECKING:
     from app.models.db_models.user import UserSettings
 
@@ -28,10 +30,19 @@ DEFAULT_PERSONA_NAME = "Default"
 
 def build_system_prompt_for_chat(
     user_settings: "UserSettings",
+    agent_kind: AgentKind,
     selected_persona_name: str = DEFAULT_PERSONA_NAME,
 ) -> str:
     persona_content = ""
-    if selected_persona_name != DEFAULT_PERSONA_NAME and user_settings.personas:
+    # Only apply the persona for agents whose CLI honors a replaced system
+    # prompt; for others (cursor, copilot, opencode) the persona would be
+    # silently dropped, so skip it here and keep the prompt suggestions
+    # instructions unchanged.
+    if (
+        agent_kind in PERSONAS_SUPPORTED_AGENTS
+        and selected_persona_name != DEFAULT_PERSONA_NAME
+        and user_settings.personas
+    ):
         persona = next(
             (
                 p

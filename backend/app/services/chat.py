@@ -807,8 +807,10 @@ class ChatService(BaseDbService[Chat]):
             stream_status=MessageStreamStatus.IN_PROGRESS,
         )
 
+        model = MODELS[request.model_id]
         system_prompt = build_system_prompt_for_chat(
             user_settings,
+            agent_kind=model.agent_kind,
             selected_persona_name=request.selected_persona_name,
         )
         try:
@@ -825,7 +827,7 @@ class ChatService(BaseDbService[Chat]):
                 worktree=request.worktree,
                 plan_mode=request.plan_mode,
                 attachments=attachments,
-                context_window=MODELS[request.model_id].context_window,
+                context_window=model.context_window,
                 selected_persona_name=request.selected_persona_name,
             )
         except Exception as e:
