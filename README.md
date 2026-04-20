@@ -174,6 +174,16 @@ docker compose down
 docker compose logs -f
 ```
 
+### Developer hooks
+
+The repo uses a root `.githooks/pre-commit` hook for frontend staged-file checks and backend `ruff` linting. Point Git at the repo hook directory once per clone:
+
+```bash
+./scripts/install-hooks.sh
+pip install pre-commit
+pre-commit run --all-files
+```
+
 ### Default web ports
 
 - Frontend: `3000`
