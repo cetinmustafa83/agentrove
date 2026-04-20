@@ -63,6 +63,15 @@ CURSOR_SESSION_MODES = frozenset({"agent", "plan", "ask"})
 # restricts edits to `.opencode/plans/*.md`, `build` has full tool access.
 OPENCODE_SESSION_MODES = frozenset({"build", "plan"})
 
+# Agents that can have their base system prompt replaced by a persona.
+# Claude/Codex expose a first-class mechanism (ACP _meta.systemPrompt for
+# Claude; model_instructions_file CLI flag for Codex). Cursor, Copilot, and
+# OpenCode CLIs silently ignore any system prompt we send over ACP, so
+# personas would have no effect there — we hide the selector instead.
+PERSONAS_SUPPORTED_AGENTS: frozenset[AgentKind] = frozenset(
+    {AgentKind.CLAUDE, AgentKind.CODEX}
+)
+
 
 def coerce_thinking_mode(mode: str | None, valid_modes: frozenset[str]) -> str:
     # Normalises the UI's named thinking tier to one the agent actually accepts,

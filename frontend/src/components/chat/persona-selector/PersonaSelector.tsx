@@ -8,6 +8,16 @@ import {
 } from '@/store/chatSettingsStore';
 import { useIsSplitMode } from '@/hooks/useIsSplitMode';
 import { useChatContext } from '@/hooks/useChatContext';
+import type { AgentKind } from '@/types/chat.types';
+
+// Only Claude and Codex CLIs honor a replaced system prompt (Claude via ACP
+// _meta.systemPrompt; Codex via model_instructions_file). Cursor, Copilot, and
+// OpenCode silently ignore it, so personas are hidden for those agents and
+// the backend skips applying them as well.
+export const PERSONAS_SUPPORTED_AGENTS: ReadonlySet<AgentKind> = new Set<AgentKind>([
+  'claude',
+  'codex',
+]);
 
 interface PersonaOption {
   value: string;

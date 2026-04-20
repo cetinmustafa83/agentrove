@@ -4,7 +4,10 @@ import {
   THINKING_MODES_BY_AGENT,
   ThinkingModeSelector,
 } from '@/components/chat/thinking-mode-selector/ThinkingModeSelector';
-import { PersonaSelector } from '@/components/chat/persona-selector/PersonaSelector';
+import {
+  PersonaSelector,
+  PERSONAS_SUPPORTED_AGENTS,
+} from '@/components/chat/persona-selector/PersonaSelector';
 import { BranchSelector } from '@/components/chat/branch-selector/BranchSelector';
 import { useInputState, useInputActions } from '@/hooks/useInputContext';
 import { useModelMap } from '@/hooks/queries/useModelQueries';
@@ -26,7 +29,8 @@ export function InputControls() {
   const worktreeCwd = useChatStore((s) => s.currentChat?.worktree_cwd) ?? undefined;
   const { data: branchesData } = useGitBranchesQuery(sandboxId, !!sandboxId, worktreeCwd);
 
-  const showPersona = personas.length > 0;
+  const showPersona =
+    personas.length > 0 && (!agentKind || PERSONAS_SUPPORTED_AGENTS.has(agentKind));
   const showBranch = !!sandboxId && !!branchesData?.is_git_repo && branchesData.branches.length > 0;
   const showThinking = agentKind ? THINKING_MODES_BY_AGENT[agentKind].length > 0 : true;
 
