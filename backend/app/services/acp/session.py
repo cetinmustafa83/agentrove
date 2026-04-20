@@ -84,6 +84,9 @@ class AcpSessionConfig:
     system_prompt_is_full_replace: bool = False
     reasoning_effort: str | None = None
     session_meta: dict[str, Any] = field(default_factory=dict)
+    # Codex-only: absolute path to a model_instructions_file written before spawn
+    # when doing a full system prompt replacement (persona mode).
+    codex_instructions_file_path: str | None = None
 
 
 class AcpSession:
@@ -286,6 +289,26 @@ class AcpSession:
             workspace_path=config.workspace_path,
         )
         spawn_config = replace(config, cwd=provider.resolve_workspace_path(config.cwd))
+
+        # Codex ignores base_instructions for full system prompt replacement,
+        # so we write the prompt to a sandbox file and point Codex at it via
+        # model_instructions_file (emitted by the Codex adapter).
+        if (
+            config.system_prompt_is_full_replace
+            and config.system_prompt
+            and config.agent_kind == AgentKind.CODEX
+        ):
+            instructions_rel_path = ".codex/instructions.md"
+            await provider.write_file(
+                config.sandbox_id, instructions_rel_path, config.system_prompt
+            )
+            spawn_config = replace(
+                spawn_config,
+                codex_instructions_file_path=provider.resolve_workspace_path(
+                    instructions_rel_path
+                ),
+            )
+
         process = await cls._spawn_process(spawn_config)
 
         if process.stdin is None or process.stdout is None:
@@ -432,6 +455,7 @@ class AcpSession:
             reasoning_effort=config.reasoning_effort,
             permission_mode=config.permission_mode,
             launch_approval_policy=config.launch_approval_policy,
+            instructions_file_path=config.codex_instructions_file_path,
         )
 
     @staticmethod

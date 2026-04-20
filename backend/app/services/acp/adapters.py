@@ -132,6 +132,7 @@ class AgentAdapter(ABC):
         reasoning_effort: str | None,
         permission_mode: str | None,
         launch_approval_policy: str | None,
+        instructions_file_path: str | None = None,
     ) -> LaunchConfig:
         raise NotImplementedError
 
@@ -172,6 +173,7 @@ class ClaudeAgentAdapter(AgentAdapter):
         reasoning_effort: str | None,
         permission_mode: str | None,
         launch_approval_policy: str | None,
+        instructions_file_path: str | None = None,
     ) -> LaunchConfig:
         # Claude doesn't use CLI args — all config is via env vars and session meta.
         return LaunchConfig(binary="claude-agent-acp")
@@ -222,6 +224,7 @@ class CodexAgentAdapter(AgentAdapter):
         reasoning_effort: str | None,
         permission_mode: str | None,
         launch_approval_policy: str | None,
+        instructions_file_path: str | None = None,
     ) -> LaunchConfig:
         # Codex uses CLI -c flags for all customization (instructions,
         # reasoning effort, sandbox permissions, approval policy).
@@ -229,15 +232,23 @@ class CodexAgentAdapter(AgentAdapter):
         # Required for Codex to expose ACP session modes (auto/read-only/full-access).
         args.extend(["-c", "features.collaboration_modes=true"])
         if system_prompt:
-            # Codex has separate base vs developer instruction channels.
-            # Personas replace the base instructions entirely, while normal
-            # app-level additions should append as developer instructions.
-            instruction_key = (
-                "base_instructions"
-                if system_prompt_is_full_replace
-                else "developer_instructions"
-            )
-            args.extend(["-c", instruction_key + "=" + json.dumps(system_prompt)])
+            if system_prompt_is_full_replace and instructions_file_path:
+                # Codex ignores base_instructions for replacing the full system
+                # prompt, so the caller writes the prompt to a file we point
+                # Codex at via model_instructions_file, and we disable the
+                # default personality so the file is the sole instruction set.
+                args.extend(["-c", "features.personality=false"])
+                args.extend(["-c", 'personality="none"'])
+                args.extend(
+                    [
+                        "-c",
+                        f"model_instructions_file={json.dumps(instructions_file_path)}",
+                    ]
+                )
+            else:
+                args.extend(
+                    ["-c", "developer_instructions=" + json.dumps(system_prompt)]
+                )
         if reasoning_effort:
             args.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
         if launch_approval_policy == "never":
@@ -304,6 +315,7 @@ class CopilotCliAdapter(AgentAdapter):
         reasoning_effort: str | None,
         permission_mode: str | None,
         launch_approval_policy: str | None,
+        instructions_file_path: str | None = None,
     ) -> LaunchConfig:
         return LaunchConfig(binary="copilot", cli_args=["--acp", "--stdio"])
 
@@ -363,6 +375,7 @@ class CursorAgentAdapter(AgentAdapter):
         reasoning_effort: str | None,
         permission_mode: str | None,
         launch_approval_policy: str | None,
+        instructions_file_path: str | None = None,
     ) -> LaunchConfig:
         return LaunchConfig(binary="cursor-agent", cli_args=["acp"])
 
@@ -416,6 +429,7 @@ class OpencodeAgentAdapter(AgentAdapter):
         reasoning_effort: str | None,
         permission_mode: str | None,
         launch_approval_policy: str | None,
+        instructions_file_path: str | None = None,
     ) -> LaunchConfig:
         return LaunchConfig(binary="opencode", cli_args=["acp"])
 
