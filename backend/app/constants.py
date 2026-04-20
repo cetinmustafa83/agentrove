@@ -152,77 +152,48 @@ MODELS: dict[str, ModelInfo] = {
     "copilot:gpt-5.1": ModelInfo("GPT 5.1", AgentKind.COPILOT, 160_000),
     "copilot:gpt-5-mini": ModelInfo("GPT 5 Mini", AgentKind.COPILOT, 160_000),
     "copilot:gpt-4.1": ModelInfo("GPT 4.1", AgentKind.COPILOT, 80_000),
-    # Cursor CLI models. These are the canonical ACP model IDs returned by
-    # `cursor-agent acp` in the session/new response — Cursor uses a bracket-
-    # notation where the model ID encodes attributes like reasoning effort,
-    # thinking mode, context window, and fast/slow dispatch (e.g.
-    # `gpt-5.4[reasoning=medium,context=272k,fast=false]`). Only these exact
-    # IDs are accepted by `set_session_model`; the shorter -low/-high names
-    # from `cursor-agent models` are a CLI convenience that doesn't round-trip
-    # through ACP. Context windows are taken from the `context=XXXk` attribute
-    # when Cursor specifies it, otherwise left as None (UI hides the badge).
-    "cursor:default[]": ModelInfo("Auto", AgentKind.CURSOR, None),
-    "cursor:composer-2[fast=true]": ModelInfo("Composer 2", AgentKind.CURSOR, 200_000),
-    "cursor:composer-1.5[]": ModelInfo("Composer 1.5", AgentKind.CURSOR, 200_000),
-    "cursor:gpt-5.4[reasoning=medium,context=272k,fast=false]": ModelInfo(
-        "GPT 5.4", AgentKind.CURSOR, 272_000
-    ),
-    "cursor:gpt-5.4-mini[reasoning=medium]": ModelInfo(
-        "GPT 5.4 Mini", AgentKind.CURSOR, 272_000
-    ),
-    "cursor:gpt-5.4-nano[reasoning=medium]": ModelInfo(
-        "GPT 5.4 Nano", AgentKind.CURSOR, 272_000
-    ),
-    "cursor:gpt-5.3-codex[reasoning=medium,fast=false]": ModelInfo(
-        "GPT 5.3 Codex", AgentKind.CURSOR, 272_000
-    ),
-    "cursor:gpt-5.3-codex-spark[reasoning=medium]": ModelInfo(
+    "cursor:auto": ModelInfo("Auto", AgentKind.CURSOR, None),
+    "cursor:composer-2-fast": ModelInfo("Composer 2", AgentKind.CURSOR, 200_000),
+    "cursor:composer-1.5": ModelInfo("Composer 1.5", AgentKind.CURSOR, 200_000),
+    "cursor:gpt-5.4-medium": ModelInfo("GPT 5.4", AgentKind.CURSOR, 272_000),
+    "cursor:gpt-5.4-mini-medium": ModelInfo("GPT 5.4 Mini", AgentKind.CURSOR, 272_000),
+    "cursor:gpt-5.4-nano-medium": ModelInfo("GPT 5.4 Nano", AgentKind.CURSOR, 272_000),
+    "cursor:gpt-5.3-codex": ModelInfo("GPT 5.3 Codex", AgentKind.CURSOR, 272_000),
+    "cursor:gpt-5.3-codex-spark-preview": ModelInfo(
         "Codex 5.3 Spark", AgentKind.CURSOR, 272_000
     ),
-    "cursor:gpt-5.2[reasoning=medium,fast=false]": ModelInfo(
-        "GPT 5.2", AgentKind.CURSOR, 272_000
-    ),
-    "cursor:gpt-5.2-codex[reasoning=medium,fast=false]": ModelInfo(
-        "GPT 5.2 Codex", AgentKind.CURSOR, 272_000
-    ),
-    "cursor:gpt-5.1[reasoning=medium]": ModelInfo("GPT 5.1", AgentKind.CURSOR, 272_000),
-    "cursor:gpt-5.1-codex-max[reasoning=medium,fast=false]": ModelInfo(
+    "cursor:gpt-5.2": ModelInfo("GPT 5.2", AgentKind.CURSOR, 272_000),
+    "cursor:gpt-5.2-codex": ModelInfo("GPT 5.2 Codex", AgentKind.CURSOR, 272_000),
+    "cursor:gpt-5.1": ModelInfo("GPT 5.1", AgentKind.CURSOR, 272_000),
+    "cursor:gpt-5.1-codex-max-medium": ModelInfo(
         "GPT 5.1 Codex Max", AgentKind.CURSOR, 272_000
     ),
-    "cursor:gpt-5.1-codex-mini[reasoning=medium]": ModelInfo(
+    "cursor:gpt-5.1-codex-mini": ModelInfo(
         "GPT 5.1 Codex Mini", AgentKind.CURSOR, 272_000
     ),
-    "cursor:gpt-5-mini[]": ModelInfo("GPT 5 Mini", AgentKind.CURSOR, 272_000),
-    "cursor:claude-opus-4-7[thinking=true,effort=high]": ModelInfo(
+    "cursor:gpt-5-mini": ModelInfo("GPT 5 Mini", AgentKind.CURSOR, 272_000),
+    "cursor:claude-opus-4-7-thinking-high": ModelInfo(
         "Opus 4.7 Thinking", AgentKind.CURSOR, 200_000
     ),
-    "cursor:claude-opus-4-6[thinking=true,context=200k,effort=high,fast=false]": ModelInfo(
+    "cursor:claude-4.6-opus-high-thinking": ModelInfo(
         "Opus 4.6 Thinking", AgentKind.CURSOR, 200_000
     ),
-    "cursor:claude-opus-4-5[thinking=true]": ModelInfo(
+    "cursor:claude-4.5-opus-high-thinking": ModelInfo(
         "Opus 4.5 Thinking", AgentKind.CURSOR, 200_000
     ),
-    "cursor:claude-sonnet-4-6[thinking=true,context=200k,effort=medium]": ModelInfo(
+    "cursor:claude-4.6-sonnet-medium-thinking": ModelInfo(
         "Sonnet 4.6 Thinking", AgentKind.CURSOR, 200_000
     ),
-    "cursor:claude-sonnet-4-5[thinking=true,context=200k]": ModelInfo(
+    "cursor:claude-4.5-sonnet-thinking": ModelInfo(
         "Sonnet 4.5 Thinking", AgentKind.CURSOR, 200_000
     ),
-    "cursor:claude-sonnet-4[thinking=false,context=200k]": ModelInfo(
-        "Sonnet 4", AgentKind.CURSOR, 200_000
-    ),
-    "cursor:claude-haiku-4-5[thinking=true]": ModelInfo(
-        "Haiku 4.5 Thinking", AgentKind.CURSOR, 200_000
-    ),
-    "cursor:gemini-3.1-pro[]": ModelInfo("Gemini 3.1 Pro", AgentKind.CURSOR, 200_000),
-    "cursor:gemini-3-flash[]": ModelInfo("Gemini 3 Flash", AgentKind.CURSOR, 200_000),
-    "cursor:gemini-2.5-flash[]": ModelInfo(
-        "Gemini 2.5 Flash", AgentKind.CURSOR, 200_000
-    ),
-    "cursor:grok-4-20[thinking=true]": ModelInfo(
+    "cursor:claude-4-sonnet": ModelInfo("Sonnet 4", AgentKind.CURSOR, 200_000),
+    "cursor:gemini-3.1-pro": ModelInfo("Gemini 3.1 Pro", AgentKind.CURSOR, 200_000),
+    "cursor:gemini-3-flash": ModelInfo("Gemini 3 Flash", AgentKind.CURSOR, 200_000),
+    "cursor:grok-4-20-thinking": ModelInfo(
         "Grok 4.20 Thinking", AgentKind.CURSOR, 200_000
     ),
-    "cursor:kimi-k2.5[]": ModelInfo("Kimi K2.5", AgentKind.CURSOR, 262_000),
+    "cursor:kimi-k2.5": ModelInfo("Kimi K2.5", AgentKind.CURSOR, 262_000),
     "opencode:opencode/big-pickle": ModelInfo(
         "Big Pickle (OpenCode)", AgentKind.OPENCODE, 200_000
     ),

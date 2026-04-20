@@ -392,8 +392,8 @@ class CursorAgentAdapter(AgentAdapter):
         return permission_mode
 
     def map_model_id(self, model_id: str) -> str:
-        # Internal keys use "cursor:" prefix to namespace; the CLI expects
-        # the raw model name (e.g. "composer-2-fast" not "cursor:composer-2-fast").
+        # Internal keys use the "cursor:" prefix to namespace models in the
+        # shared registry; the CLI expects the raw Cursor model name.
         return model_id.removeprefix("cursor:")
 
 
