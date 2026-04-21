@@ -10,6 +10,7 @@ import {
   MoreHorizontal,
   RotateCcw,
   Undo2,
+  type LucideIcon,
 } from 'lucide-react';
 import { FileIcon } from '@/components/editor/file-tree/FileIcon';
 import { Button } from '@/components/ui/primitives/Button';
@@ -23,11 +24,32 @@ import {
   useGitRestoreFileMutation,
 } from '@/hooks/queries/useSandboxQueries';
 import { useResolvedTheme } from '@/hooks/useResolvedTheme';
+import { parsePatchFiles, parseDiffFromFile } from '@pierre/diffs';
 import type { FileDiffMetadata, FileContents } from '@pierre/diffs';
+import { FileDiff, WorkerPoolContextProvider } from '@pierre/diffs/react';
+import type { WorkerPoolOptions, WorkerInitializationRenderOptions } from '@pierre/diffs/worker';
+import DiffsWorker from '@pierre/diffs/worker/worker.js?worker';
 import type { DiffMode } from '@/types/sandbox.types';
 import { cn } from '@/utils/cn';
 
 const DIFF_THEMES = { dark: 'pierre-dark', light: 'pierre-light' } as const;
+
+// Shiki highlighting runs in this pool off the main thread. The library
+// internally snapshots these options on first mount and reuses a singleton,
+// so they must stay reference-stable — module-level keeps them that way.
+const WORKER_POOL_OPTIONS: WorkerPoolOptions = {
+  workerFactory: () => new DiffsWorker(),
+  // One file expands at a time; 2 workers covers "expand all" without a thread per CPU.
+  poolSize: 2,
+};
+const WORKER_HIGHLIGHTER_OPTIONS: WorkerInitializationRenderOptions = {};
+
+// Menu panel sits 6px below the trigger, right-aligned — shared by the open
+// handler and the resize-reposition handler.
+const computeMenuPos = (rect: DOMRect) => ({
+  top: rect.bottom + 6,
+  right: window.innerWidth - rect.right,
+});
 
 const DIFF_MODE_OPTIONS = [
   { value: 'all', label: 'All' },
@@ -113,10 +135,30 @@ function rebuildWithCollapsedContext(
   return rebuilt;
 }
 
-type FileDiffComponent = React.ComponentType<{
-  fileDiff: FileDiffMetadata;
-  options?: Record<string, unknown>;
-}>;
+function DiffEmptyState({
+  icon: Icon,
+  label,
+  sublabel,
+  children,
+}: {
+  icon: LucideIcon;
+  label: string;
+  sublabel?: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2">
+      <Icon className="h-5 w-5 text-text-quaternary dark:text-text-dark-quaternary" />
+      <span className="text-xs text-text-tertiary dark:text-text-dark-tertiary">{label}</span>
+      {sublabel && (
+        <span className="text-2xs text-text-quaternary dark:text-text-dark-quaternary">
+          {sublabel}
+        </span>
+      )}
+      {children}
+    </div>
+  );
+}
 
 function FileDiffRenderer({
   file,
@@ -125,27 +167,6 @@ function FileDiffRenderer({
   file: FileDiffMetadata;
   options: Record<string, unknown>;
 }) {
-  const [FileDiff, setFileDiff] = useState<FileDiffComponent | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const mod = await import('@pierre/diffs/react');
-      if (!cancelled) setFileDiff(() => mod.FileDiff as FileDiffComponent);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (!FileDiff) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <Spinner size="md" className="text-text-quaternary dark:text-text-dark-quaternary" />
-      </div>
-    );
-  }
-
   return (
     <ErrorBoundary
       fallback={
@@ -206,9 +227,7 @@ interface DiffViewProps {
 
 export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps) {
   const theme = useResolvedTheme();
-  const [expandedFiles, toggleFile, setExpandedFiles] = useToggleSet<number>();
-  const [parsedFiles, setParsedFiles] = useState<FileDiffMetadata[]>([]);
-  const [parsingDone, setParsingDone] = useState(false);
+  const [expandedFiles, toggleFile, setExpandedFiles] = useToggleSet<string>();
   const [mode, setMode] = useState<DiffMode>('all');
   const [diffStyle, setDiffStyle] = useState<'unified' | 'split'>('unified');
   const [discardTarget, setDiscardTarget] = useState<FileDiffMetadata | null>(null);
@@ -225,6 +244,17 @@ export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps
   const restoreFile = useGitRestoreFileMutation();
   const restoreAll = useGitRestoreAllMutation();
 
+  // Expansion is keyed by filename and persists across refetches of the same
+  // diff. When the scope itself changes (sandbox, worktree cwd, or mode) the
+  // same filename can point to unrelated content, so reset on scope change.
+  // Ref-based render check runs synchronously and avoids a double render.
+  const scopeKey = `${sandboxId ?? ''}\0${cwd ?? ''}\0${mode}`;
+  const prevScopeRef = useRef(scopeKey);
+  if (prevScopeRef.current !== scopeKey) {
+    prevScopeRef.current = scopeKey;
+    setExpandedFiles(new Set());
+  }
+
   // Portal + fixed-position menu — the toolbar's `overflow-x-auto` creates a
   // clip region on both axes (per CSS spec), so an absolute-positioned menu
   // inside it gets hidden. Portaling to <body> with fixed coords escapes it.
@@ -240,8 +270,7 @@ export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps
     }
     const trigger = triggerRef.current;
     if (!trigger) return;
-    const rect = trigger.getBoundingClientRect();
-    setMenuPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+    setMenuPos(computeMenuPos(trigger.getBoundingClientRect()));
     setMenuOpen(true);
   }, [menuOpen]);
 
@@ -256,11 +285,22 @@ export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setMenuOpen(false);
     };
+    // Keep the fixed-position panel anchored on resize. We intentionally skip
+    // document scroll: a capture-phase listener fires for every scrollable
+    // ancestor and thrashes layout, and any scroll big enough to move the
+    // trigger will also move focus/click-target and close the menu anyway.
+    const reposition = () => {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+      setMenuPos(computeMenuPos(trigger.getBoundingClientRect()));
+    };
     document.addEventListener('mousedown', handleMouseDown);
     document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', reposition);
     return () => {
       document.removeEventListener('mousedown', handleMouseDown);
       document.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', reposition);
     };
   }, [menuOpen]);
 
@@ -299,41 +339,21 @@ export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps
   }, [sandboxId, cwd, restoreAll]);
 
   const diffContent = diffData?.diff ?? '';
-  const prevFileNamesRef = useRef<string>('');
 
-  useEffect(() => {
-    setParsedFiles([]);
-    setParsingDone(false);
-    if (!diffContent) {
-      setParsingDone(true);
-      setExpandedFiles(new Set());
-      prevFileNamesRef.current = '';
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const { parsePatchFiles, parseDiffFromFile } = await import('@pierre/diffs');
-        const patches = parsePatchFiles(diffContent);
-        if (!cancelled) {
-          const files = patches
-            .flatMap((p) => p.files)
-            .map((f) => rebuildWithCollapsedContext(f, parseDiffFromFile));
-          const fileNames = files.map((f) => f.name).join('\0');
-          if (fileNames !== prevFileNamesRef.current) {
-            setExpandedFiles(new Set());
-            prevFileNamesRef.current = fileNames;
-          }
-          setParsedFiles(files);
-        }
-      } finally {
-        if (!cancelled) setParsingDone(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [diffContent, setExpandedFiles]);
+  const parsedFiles = useMemo<FileDiffMetadata[]>(() => {
+    if (!diffContent) return [];
+    return (
+      parsePatchFiles(diffContent)
+        .flatMap((p) => p.files)
+        // New/deleted files have no "unchanged context" to collapse, so the
+        // re-diff would be pure waste; only rebuild for modify/rename.
+        .map((f) =>
+          f.type === 'new' || f.type === 'deleted'
+            ? f
+            : rebuildWithCollapsedContext(f, parseDiffFromFile),
+        )
+    );
+  }, [diffContent]);
 
   const options = useMemo(
     () => ({
@@ -346,14 +366,13 @@ export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps
     [theme, diffStyle],
   );
 
-  const allExpanded = parsedFiles.length > 0 && expandedFiles.size === parsedFiles.length;
+  const allExpanded = parsedFiles.length > 0 && parsedFiles.every((f) => expandedFiles.has(f.name));
 
   const toggleAll = useCallback(() => {
     setExpandedFiles((prev) => {
-      if (prev.size === parsedFiles.length && parsedFiles.length > 0) {
-        return new Set();
-      }
-      return new Set(parsedFiles.map((_, i) => i));
+      const allOn = parsedFiles.length > 0 && parsedFiles.every((f) => prev.has(f.name));
+      if (allOn) return new Set();
+      return new Set(parsedFiles.map((f) => f.name));
     });
   }, [parsedFiles, setExpandedFiles]);
 
@@ -369,270 +388,234 @@ export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps
   const isGitRepo = diffData?.is_git_repo ?? false;
   const hasChanges = diffData?.has_changes ?? false;
   const diffError = diffData?.error ?? null;
-  const showFiles = !isLoading && !isError && isGitRepo && hasChanges && parsedFiles.length > 0;
-  // Discard restores against HEAD, which only matches what the user sees in
-  // `all` mode. In staged/unstaged it would wipe the other side too, and in
-  // branch mode it wouldn't touch the committed diff at all.
+  const ready = !isLoading && !isError && isGitRepo;
+  const showFiles = ready && hasChanges && parsedFiles.length > 0;
+  // Discard (per-file and bulk) restores against HEAD, which only matches what
+  // the user sees in `all` mode. In staged/unstaged it would wipe the other
+  // side too, and in branch mode it wouldn't touch the committed diff at all.
   // `!isPlaceholderData` guards the window where `keepPreviousData` still
   // shows rows from the previous mode while the `all`-mode fetch is pending.
-  const canDiscardAll =
-    !isLoading && !isError && isGitRepo && hasChanges && mode === 'all' && !isPlaceholderData;
+  const canDiscard = ready && hasChanges && mode === 'all' && !isPlaceholderData;
 
   return (
-    <div className="flex h-full w-full flex-col bg-surface-secondary dark:bg-surface-dark-secondary">
-      <div className="flex h-9 items-center gap-1.5 overflow-x-auto border-b border-border/50 px-3 [scrollbar-width:none] dark:border-border-dark/50 [&::-webkit-scrollbar]:hidden">
-        <Button
-          onClick={() => refetch()}
-          variant="unstyled"
-          className="shrink-0 rounded-md p-1 text-text-quaternary transition-colors duration-200 hover:text-text-secondary dark:text-text-dark-quaternary dark:hover:text-text-dark-secondary"
-          title="Refresh diff"
-          aria-label="Refresh diff"
-        >
-          <RotateCcw
-            className={cn('h-3 w-3', isFetching && 'animate-spin motion-reduce:animate-none')}
+    <WorkerPoolContextProvider
+      poolOptions={WORKER_POOL_OPTIONS}
+      highlighterOptions={WORKER_HIGHLIGHTER_OPTIONS}
+    >
+      <div className="flex h-full w-full flex-col bg-surface-secondary dark:bg-surface-dark-secondary">
+        <div className="flex h-9 items-center gap-1.5 overflow-x-auto border-b border-border/50 px-3 [scrollbar-width:none] dark:border-border-dark/50 [&::-webkit-scrollbar]:hidden">
+          <Button
+            onClick={() => refetch()}
+            variant="unstyled"
+            className="shrink-0 rounded-md p-1 text-text-quaternary transition-colors duration-200 hover:text-text-secondary dark:text-text-dark-quaternary dark:hover:text-text-dark-secondary"
+            title="Refresh diff"
+            aria-label="Refresh diff"
+          >
+            <RotateCcw
+              className={cn('h-3 w-3', isFetching && 'animate-spin motion-reduce:animate-none')}
+            />
+          </Button>
+
+          <SegmentedControl
+            options={DIFF_MODE_OPTIONS}
+            value={mode}
+            onChange={setMode}
+            size="sm"
+            className="shrink-0"
           />
-        </Button>
 
-        <SegmentedControl
-          options={DIFF_MODE_OPTIONS}
-          value={mode}
-          onChange={setMode}
-          size="sm"
-          className="shrink-0"
-        />
+          <div className="min-w-0 flex-1" />
 
-        <div className="min-w-0 flex-1" />
-
-        {(showFiles || canDiscardAll) && (
-          <>
-            <Button
-              ref={triggerRef}
-              onClick={toggleMenu}
-              variant="unstyled"
-              className="shrink-0 rounded-md p-1 text-text-quaternary transition-colors duration-200 hover:text-text-secondary dark:text-text-dark-quaternary dark:hover:text-text-dark-secondary"
-              title="More actions"
-              aria-label="More actions"
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-            >
-              <MoreHorizontal className="h-3 w-3" />
-            </Button>
-            {menuOpen &&
-              createPortal(
-                <div
-                  ref={menuPanelRef}
-                  role="menu"
-                  style={{ top: menuPos.top, right: menuPos.right }}
-                  className="fixed z-50 min-w-[180px] animate-fade-in space-y-px rounded-xl border border-border bg-surface-secondary/95 p-1 shadow-medium backdrop-blur-xl backdrop-saturate-150 dark:border-border-dark dark:bg-surface-dark-secondary/95"
-                >
-                  {showFiles && (
-                    <Button
-                      variant="unstyled"
-                      role="menuitem"
-                      onClick={() => {
-                        toggleAll();
-                        setMenuOpen(false);
-                      }}
-                      className={MENU_ITEM_CLASS}
-                    >
-                      <ChevronsUpDown className="h-3 w-3 text-text-tertiary dark:text-text-dark-tertiary" />
-                      {allExpanded ? 'Collapse all files' : 'Expand all files'}
-                    </Button>
-                  )}
-                  {showFiles && canDiscardAll && (
-                    <div className="my-1 h-px bg-border/50 dark:bg-border-dark/50" />
-                  )}
-                  {canDiscardAll && (
-                    <Button
-                      variant="unstyled"
-                      role="menuitem"
-                      disabled={restoreAll.isPending}
-                      onClick={() => {
-                        setDiscardAllOpen(true);
-                        setMenuOpen(false);
-                      }}
-                      className={MENU_ITEM_CLASS}
-                    >
-                      <Undo2 className="h-3 w-3 text-text-tertiary dark:text-text-dark-tertiary" />
-                      Discard all changes
-                    </Button>
-                  )}
-                </div>,
-                document.body,
-              )}
-            <div className="h-3 w-px shrink-0 bg-border/50 dark:bg-border-dark/50" />
-          </>
-        )}
-
-        <SegmentedControl
-          options={DIFF_STYLE_OPTIONS}
-          value={diffStyle}
-          onChange={setDiffStyle}
-          size="sm"
-          className="shrink-0"
-        />
-      </div>
-
-      <div className="relative min-h-0 flex-1 overflow-auto">
-        {isLoading && (
-          <div className="flex h-full items-center justify-center">
-            <Spinner size="md" className="text-text-quaternary dark:text-text-dark-quaternary" />
-          </div>
-        )}
-
-        {!isLoading && isError && (
-          <div className="flex h-full flex-col items-center justify-center gap-2">
-            <AlertCircle className="h-5 w-5 text-text-quaternary dark:text-text-dark-quaternary" />
-            <span className="text-xs text-text-tertiary dark:text-text-dark-tertiary">
-              Failed to load diff
-            </span>
-            <Button
-              onClick={() => refetch()}
-              variant="unstyled"
-              className="text-2xs text-text-tertiary underline transition-colors duration-200 hover:text-text-secondary dark:text-text-dark-tertiary dark:hover:text-text-dark-secondary"
-            >
-              Retry
-            </Button>
-          </div>
-        )}
-
-        {!isLoading && !isError && !isGitRepo && (
-          <div className="flex h-full flex-col items-center justify-center gap-2">
-            <GitCompareArrows className="h-5 w-5 text-text-quaternary dark:text-text-dark-quaternary" />
-            <span className="text-xs text-text-tertiary dark:text-text-dark-tertiary">
-              Not a git repository
-            </span>
-          </div>
-        )}
-
-        {!isLoading && !isError && isGitRepo && diffError && (
-          <div className="flex h-full flex-col items-center justify-center gap-2">
-            <GitCompareArrows className="h-5 w-5 text-text-quaternary dark:text-text-dark-quaternary" />
-            <span className="text-xs text-text-tertiary dark:text-text-dark-tertiary">
-              {diffError}
-            </span>
-          </div>
-        )}
-
-        {!isLoading && !isError && isGitRepo && !diffError && !hasChanges && (
-          <div className="flex h-full flex-col items-center justify-center gap-2">
-            <GitCompareArrows className="h-5 w-5 text-text-quaternary dark:text-text-dark-quaternary" />
-            <span className="text-xs text-text-tertiary dark:text-text-dark-tertiary">
-              {DIFF_EMPTY_LABELS[mode]}
-            </span>
-          </div>
-        )}
-
-        {showFiles && (
-          <div className="divide-y divide-border/30 dark:divide-border-dark/30">
-            {parsedFiles.map((file, i) => {
-              const isExpanded = expandedFiles.has(i);
-              const isRenamed = isRenameFileType(file.type);
-              return (
-                <div key={i}>
-                  <div className="group flex w-full items-center transition-colors duration-200 hover:bg-surface-hover dark:hover:bg-surface-dark-hover">
-                    <Button
-                      variant="unstyled"
-                      type="button"
-                      onClick={() => toggleFile(i)}
-                      className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left"
-                    >
-                      <ChevronRight
-                        className={cn(
-                          'h-3 w-3 shrink-0 text-text-quaternary transition-transform duration-200 dark:text-text-dark-quaternary',
-                          isExpanded && 'rotate-90',
-                        )}
-                      />
-                      <FileIcon name={file.name} className="h-3 w-3" />
-                      <span className="min-w-0 truncate font-mono text-2xs text-text-secondary dark:text-text-dark-secondary">
-                        {isRenamed && file.prevName ? (
-                          <>
-                            <span className="text-text-quaternary dark:text-text-dark-quaternary">
-                              {file.prevName}
-                            </span>
-                            <span className="mx-1 text-text-quaternary dark:text-text-dark-quaternary">
-                              &rarr;
-                            </span>
-                            {file.name}
-                          </>
-                        ) : (
-                          file.name
-                        )}
-                      </span>
-                      <FileStatusBadge type={file.type} />
-                    </Button>
-                    {canDiscardAll && (
+          {(showFiles || canDiscard) && (
+            <>
+              <Button
+                ref={triggerRef}
+                onClick={toggleMenu}
+                variant="unstyled"
+                className="shrink-0 rounded-md p-1 text-text-quaternary transition-colors duration-200 hover:text-text-secondary dark:text-text-dark-quaternary dark:hover:text-text-dark-secondary"
+                title="More actions"
+                aria-label="More actions"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+              >
+                <MoreHorizontal className="h-3 w-3" />
+              </Button>
+              {menuOpen &&
+                createPortal(
+                  <div
+                    ref={menuPanelRef}
+                    role="menu"
+                    style={{ top: menuPos.top, right: menuPos.right }}
+                    className="fixed z-50 min-w-[180px] animate-fade-in space-y-px rounded-xl border border-border bg-surface-secondary/95 p-1 shadow-medium backdrop-blur-xl backdrop-saturate-150 dark:border-border-dark dark:bg-surface-dark-secondary/95"
+                  >
+                    {showFiles && (
                       <Button
                         variant="unstyled"
-                        type="button"
-                        onClick={() => setDiscardTarget(file)}
-                        disabled={restoreFile.isPending}
-                        className="mr-1 shrink-0 rounded-md p-1 text-text-quaternary opacity-0 transition-opacity duration-200 hover:text-text-primary focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-50 group-hover:opacity-100 dark:text-text-dark-quaternary dark:hover:text-text-dark-primary"
-                        title="Discard changes"
-                        aria-label={`Discard changes for ${file.name}`}
+                        role="menuitem"
+                        onClick={() => {
+                          toggleAll();
+                          setMenuOpen(false);
+                        }}
+                        className={MENU_ITEM_CLASS}
                       >
-                        <Undo2 className="h-3 w-3" />
+                        <ChevronsUpDown className="h-3 w-3 text-text-tertiary dark:text-text-dark-tertiary" />
+                        {allExpanded ? 'Collapse all files' : 'Expand all files'}
                       </Button>
                     )}
-                    <FileStats file={file} />
-                  </div>
-                  {isExpanded && <FileDiffRenderer file={file} options={options} />}
-                </div>
-              );
-            })}
-          </div>
-        )}
+                    {showFiles && canDiscard && (
+                      <div className="my-1 h-px bg-border/50 dark:bg-border-dark/50" />
+                    )}
+                    {canDiscard && (
+                      <Button
+                        variant="unstyled"
+                        role="menuitem"
+                        disabled={restoreAll.isPending}
+                        onClick={() => {
+                          setDiscardAllOpen(true);
+                          setMenuOpen(false);
+                        }}
+                        className={MENU_ITEM_CLASS}
+                      >
+                        <Undo2 className="h-3 w-3 text-text-tertiary dark:text-text-dark-tertiary" />
+                        Discard all changes
+                      </Button>
+                    )}
+                  </div>,
+                  document.body,
+                )}
+              <div className="h-3 w-px shrink-0 bg-border/50 dark:bg-border-dark/50" />
+            </>
+          )}
 
-        {!isLoading &&
-          !isError &&
-          isGitRepo &&
-          hasChanges &&
-          parsedFiles.length === 0 &&
-          !parsingDone && (
+          <SegmentedControl
+            options={DIFF_STYLE_OPTIONS}
+            value={diffStyle}
+            onChange={setDiffStyle}
+            size="sm"
+            className="shrink-0"
+          />
+        </div>
+
+        <div className="relative min-h-0 flex-1 overflow-auto">
+          {isLoading && (
             <div className="flex h-full items-center justify-center">
               <Spinner size="md" className="text-text-quaternary dark:text-text-dark-quaternary" />
             </div>
           )}
 
-        {!isLoading &&
-          !isError &&
-          isGitRepo &&
-          hasChanges &&
-          parsedFiles.length === 0 &&
-          parsingDone && (
-            <div className="flex h-full flex-col items-center justify-center gap-2">
-              <GitCompareArrows className="h-5 w-5 text-text-quaternary dark:text-text-dark-quaternary" />
-              <span className="text-xs text-text-tertiary dark:text-text-dark-tertiary">
-                Changes detected but diff cannot be displayed
-              </span>
-              <span className="text-2xs text-text-quaternary dark:text-text-dark-quaternary">
-                Binary or unsupported file formats
-              </span>
+          {!isLoading && isError && (
+            <DiffEmptyState icon={AlertCircle} label="Failed to load diff">
+              <Button
+                onClick={() => refetch()}
+                variant="unstyled"
+                className="text-2xs text-text-tertiary underline transition-colors duration-200 hover:text-text-secondary dark:text-text-dark-tertiary dark:hover:text-text-dark-secondary"
+              >
+                Retry
+              </Button>
+            </DiffEmptyState>
+          )}
+
+          {!isLoading && !isError && !isGitRepo && (
+            <DiffEmptyState icon={GitCompareArrows} label="Not a git repository" />
+          )}
+
+          {ready && diffError && <DiffEmptyState icon={GitCompareArrows} label={diffError} />}
+
+          {ready && !diffError && !hasChanges && (
+            <DiffEmptyState icon={GitCompareArrows} label={DIFF_EMPTY_LABELS[mode]} />
+          )}
+
+          {showFiles && (
+            <div className="divide-y divide-border/30 dark:divide-border-dark/30">
+              {parsedFiles.map((file) => {
+                const isExpanded = expandedFiles.has(file.name);
+                const isRenamed = isRenameFileType(file.type);
+                return (
+                  <div key={file.name}>
+                    <div className="group flex w-full items-center transition-colors duration-200 hover:bg-surface-hover dark:hover:bg-surface-dark-hover">
+                      <Button
+                        variant="unstyled"
+                        type="button"
+                        onClick={() => toggleFile(file.name)}
+                        className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left"
+                      >
+                        <ChevronRight
+                          className={cn(
+                            'h-3 w-3 shrink-0 text-text-quaternary transition-transform duration-200 dark:text-text-dark-quaternary',
+                            isExpanded && 'rotate-90',
+                          )}
+                        />
+                        <FileIcon name={file.name} className="h-3 w-3" />
+                        <span className="min-w-0 truncate font-mono text-2xs text-text-secondary dark:text-text-dark-secondary">
+                          {isRenamed && file.prevName ? (
+                            <>
+                              <span className="text-text-quaternary dark:text-text-dark-quaternary">
+                                {file.prevName}
+                              </span>
+                              <span className="mx-1 text-text-quaternary dark:text-text-dark-quaternary">
+                                &rarr;
+                              </span>
+                              {file.name}
+                            </>
+                          ) : (
+                            file.name
+                          )}
+                        </span>
+                        <FileStatusBadge type={file.type} />
+                      </Button>
+                      {canDiscard && (
+                        <Button
+                          variant="unstyled"
+                          type="button"
+                          onClick={() => setDiscardTarget(file)}
+                          disabled={restoreFile.isPending}
+                          className="mr-1 shrink-0 rounded-md p-1 text-text-quaternary opacity-0 transition-opacity duration-200 hover:text-text-primary focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-50 group-hover:opacity-100 dark:text-text-dark-quaternary dark:hover:text-text-dark-primary"
+                          title="Discard changes"
+                          aria-label={`Discard changes for ${file.name}`}
+                        >
+                          <Undo2 className="h-3 w-3" />
+                        </Button>
+                      )}
+                      <FileStats file={file} />
+                    </div>
+                    {isExpanded && <FileDiffRenderer file={file} options={options} />}
+                  </div>
+                );
+              })}
             </div>
           )}
+
+          {ready && hasChanges && parsedFiles.length === 0 && (
+            <DiffEmptyState
+              icon={GitCompareArrows}
+              label="Changes detected but diff cannot be displayed"
+              sublabel="Binary or unsupported file formats"
+            />
+          )}
+        </div>
+
+        <ConfirmDialog
+          isOpen={discardTarget !== null}
+          onClose={() => setDiscardTarget(null)}
+          onConfirm={handleDiscard}
+          title="Discard changes?"
+          message={
+            discardTarget
+              ? `All changes to ${discardTarget.name} will be reverted to the last committed version. This cannot be undone.`
+              : ''
+          }
+          confirmLabel="Discard"
+        />
+
+        <ConfirmDialog
+          isOpen={discardAllOpen}
+          onClose={() => setDiscardAllOpen(false)}
+          onConfirm={handleDiscardAll}
+          title="Discard all changes?"
+          message="All modified, staged, and untracked files in the workspace will be reverted to the last committed version. This cannot be undone."
+          confirmLabel="Discard all"
+        />
       </div>
-
-      <ConfirmDialog
-        isOpen={discardTarget !== null}
-        onClose={() => setDiscardTarget(null)}
-        onConfirm={handleDiscard}
-        title="Discard changes?"
-        message={
-          discardTarget
-            ? `All changes to ${discardTarget.name} will be reverted to the last committed version. This cannot be undone.`
-            : ''
-        }
-        confirmLabel="Discard"
-      />
-
-      <ConfirmDialog
-        isOpen={discardAllOpen}
-        onClose={() => setDiscardAllOpen(false)}
-        onConfirm={handleDiscardAll}
-        title="Discard all changes?"
-        message="All modified, staged, and untracked files in the workspace will be reverted to the last committed version. This cannot be undone."
-        confirmLabel="Discard all"
-      />
-    </div>
+    </WorkerPoolContextProvider>
   );
 });
