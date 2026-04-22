@@ -71,14 +71,17 @@
 ### Comments
 - Never use docstrings (`"""..."""`) — always use inline `#` comments
 - Always comment non-obvious logic, implicit conventions, design decisions — mandatory for new/modified code; comment the *why*, never the *what*
+- Keep comments short and punchy — 1–2 lines max. Compress to the essential *why*; no multi-paragraph explanations, no restating the surrounding code, no narrating the history of the change
+- If a comment needs more than two lines, the code itself probably needs simplifying or the detail belongs in the PR description, not the file
 - Don't delete existing comments without asking — they may capture context not obvious from the code
 - Prefer clear names over comments when the code is self-explanatory
 - No decorative section comments (e.g., `# ── Section ──────`) — code structure should be self-evident
 - Place comments inside methods/classes, not above them — a method comment is the first line inside the body
 - Method comments explain *why* and *context* (who uses it, non-obvious behavior), not just restate the name
 - Good: `# Read from the API host, not the sandbox — sandbox containers don't have the user's global git config`
-- Good method comment: `# Catch-up for SSE reconnection: when a client reconnects it sends last seen seq; this pages persisted events after that seq before switching to live pub/sub.`
+- Good method comment: `# Catch-up for SSE reconnection: pages persisted events after last-seen seq before switching to live pub/sub.`
 - Bad method comment (restates name): `# Yield persisted events after a given seq`
+- Bad (too long): a 4-line comment explaining every branch and edge case — collapse to one line naming the *why*
 - Example needing no comment: `user_dir.mkdir(parents=True, exist_ok=True)`
 
 ### Cross-cutting gotchas

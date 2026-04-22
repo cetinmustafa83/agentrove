@@ -26,7 +26,7 @@ import {
 import { useResolvedTheme } from '@/hooks/useResolvedTheme';
 import { parsePatchFiles, parseDiffFromFile } from '@pierre/diffs';
 import type { FileDiffMetadata, FileContents } from '@pierre/diffs';
-import { FileDiff, WorkerPoolContextProvider } from '@pierre/diffs/react';
+import { FileDiff, Virtualizer, WorkerPoolContextProvider } from '@pierre/diffs/react';
 import type { WorkerPoolOptions, WorkerInitializationRenderOptions } from '@pierre/diffs/worker';
 import DiffsWorker from '@pierre/diffs/worker/worker.js?worker';
 import type { DiffMode } from '@/types/sandbox.types';
@@ -34,22 +34,13 @@ import { cn } from '@/utils/cn';
 
 const DIFF_THEMES = { dark: 'pierre-dark', light: 'pierre-light' } as const;
 
-// Shiki highlighting runs in this pool off the main thread. The library
-// internally snapshots these options on first mount and reuses a singleton,
-// so they must stay reference-stable — module-level keeps them that way.
+// Library snapshots these on first mount — must stay reference-stable.
 const WORKER_POOL_OPTIONS: WorkerPoolOptions = {
   workerFactory: () => new DiffsWorker(),
-  // One file expands at a time; 2 workers covers "expand all" without a thread per CPU.
+  // 2 workers covers "expand all" without a thread per CPU.
   poolSize: 2,
 };
 const WORKER_HIGHLIGHTER_OPTIONS: WorkerInitializationRenderOptions = {};
-
-// Menu panel sits 6px below the trigger, right-aligned — shared by the open
-// handler and the resize-reposition handler.
-const computeMenuPos = (rect: DOMRect) => ({
-  top: rect.bottom + 6,
-  right: window.innerWidth - rect.right,
-});
 
 const DIFF_MODE_OPTIONS = [
   { value: 'all', label: 'All' },
@@ -88,36 +79,28 @@ const STATUS_COLORS: Record<string, string> = {
 const MENU_ITEM_CLASS =
   'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-text-secondary transition-colors duration-200 hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50 dark:text-text-dark-secondary dark:hover:bg-surface-dark-hover';
 
+// 6px below trigger, right-aligned — shared by open + reposition handlers.
+const computeMenuPos = (rect: DOMRect) => ({
+  top: rect.bottom + 6,
+  right: window.innerWidth - rect.right,
+});
+
 const isRenameFileType = (type?: string) => type === 'rename-pure' || type === 'rename-changed';
 
-// Extract old/new file contents from a full-context parsed diff. The hunk lines
-// include trailing '\n' (from parsePatchFiles's SPLIT_WITH_NEWLINES split), so
-// joining without separator reconstructs the original file content.
+// Backend always sends full-context diffs, so deletion/additionLines hold the
+// complete bodies. Lines keep trailing '\n', so raw join reconstructs the file.
 function extractContents(
   file: FileDiffMetadata,
 ): { oldContent: string; newContent: string } | null {
-  if (file.hunks.length === 0) return null;
-  const oldParts: string[] = [];
-  const newParts: string[] = [];
-  for (const hunk of file.hunks) {
-    for (const content of hunk.hunkContent) {
-      if (content.type === 'context') {
-        for (const line of content.lines) {
-          oldParts.push(line);
-          newParts.push(line);
-        }
-      } else {
-        for (const line of content.deletions) oldParts.push(line);
-        for (const line of content.additions) newParts.push(line);
-      }
-    }
-  }
-  if (oldParts.length === 0 && newParts.length === 0) return null;
-  return { oldContent: oldParts.join(''), newContent: newParts.join('') };
+  if (file.deletionLines.length === 0 && file.additionLines.length === 0) return null;
+  return {
+    oldContent: file.deletionLines.join(''),
+    newContent: file.additionLines.join(''),
+  };
 }
 
-// Re-diff full-context file data with limited context so the library produces
-// hunk gaps (collapsedBefore > 0) that enable the incremental expand UI.
+// Re-diff with limited context so the library emits collapsedBefore gaps for
+// the expand-on-click UI.
 function rebuildWithCollapsedContext(
   fullFile: FileDiffMetadata,
   parseDiffFromFile: (old: FileContents, cur: FileContents) => FileDiffMetadata,
@@ -244,10 +227,8 @@ export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps
   const restoreFile = useGitRestoreFileMutation();
   const restoreAll = useGitRestoreAllMutation();
 
-  // Expansion is keyed by filename and persists across refetches of the same
-  // diff. When the scope itself changes (sandbox, worktree cwd, or mode) the
-  // same filename can point to unrelated content, so reset on scope change.
-  // Ref-based render check runs synchronously and avoids a double render.
+  // Filename keys persist across refetches, but mean different content across
+  // scopes — reset on scope change. Ref check avoids a double render.
   const scopeKey = `${sandboxId ?? ''}\0${cwd ?? ''}\0${mode}`;
   const prevScopeRef = useRef(scopeKey);
   if (prevScopeRef.current !== scopeKey) {
@@ -255,9 +236,7 @@ export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps
     setExpandedFiles(new Set());
   }
 
-  // Portal + fixed-position menu — the toolbar's `overflow-x-auto` creates a
-  // clip region on both axes (per CSS spec), so an absolute-positioned menu
-  // inside it gets hidden. Portaling to <body> with fixed coords escapes it.
+  // Portal escapes the toolbar's overflow-x-auto clip (CSS clips both axes).
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuPanelRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -285,10 +264,8 @@ export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setMenuOpen(false);
     };
-    // Keep the fixed-position panel anchored on resize. We intentionally skip
-    // document scroll: a capture-phase listener fires for every scrollable
-    // ancestor and thrashes layout, and any scroll big enough to move the
-    // trigger will also move focus/click-target and close the menu anyway.
+    // Resize only — document scroll thrashes layout, and any real scroll
+    // closes the menu via the mousedown handler anyway.
     const reposition = () => {
       const trigger = triggerRef.current;
       if (!trigger) return;
@@ -345,8 +322,7 @@ export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps
     return (
       parsePatchFiles(diffContent)
         .flatMap((p) => p.files)
-        // New/deleted files have no "unchanged context" to collapse, so the
-        // re-diff would be pure waste; only rebuild for modify/rename.
+        // No unchanged context on new/deleted — skip the re-diff.
         .map((f) =>
           f.type === 'new' || f.type === 'deleted'
             ? f
@@ -390,11 +366,8 @@ export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps
   const diffError = diffData?.error ?? null;
   const ready = !isLoading && !isError && isGitRepo;
   const showFiles = ready && hasChanges && parsedFiles.length > 0;
-  // Discard (per-file and bulk) restores against HEAD, which only matches what
-  // the user sees in `all` mode. In staged/unstaged it would wipe the other
-  // side too, and in branch mode it wouldn't touch the committed diff at all.
-  // `!isPlaceholderData` guards the window where `keepPreviousData` still
-  // shows rows from the previous mode while the `all`-mode fetch is pending.
+  // Discard restores against HEAD — only coherent in `all` mode.
+  // `!isPlaceholderData` blocks acting on rows from the previous mode's fetch.
   const canDiscard = ready && hasChanges && mode === 'all' && !isPlaceholderData;
 
   return (
@@ -496,7 +469,7 @@ export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps
           />
         </div>
 
-        <div className="relative min-h-0 flex-1 overflow-auto">
+        <div className="relative min-h-0 flex-1 overflow-hidden">
           {isLoading && (
             <div className="flex h-full items-center justify-center">
               <Spinner size="md" className="text-text-quaternary dark:text-text-dark-quaternary" />
@@ -526,7 +499,12 @@ export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps
           )}
 
           {showFiles && (
-            <div className="divide-y divide-border/30 dark:divide-border-dark/30">
+            // Virtualizer as scroll root — FileDiff auto-switches to the
+            // virtualized impl so offscreen hunks stay unrendered.
+            <Virtualizer
+              className="h-full w-full overflow-auto"
+              contentClassName="divide-y divide-border/30 dark:divide-border-dark/30"
+            >
               {parsedFiles.map((file) => {
                 const isExpanded = expandedFiles.has(file.name);
                 const isRenamed = isRenameFileType(file.type);
@@ -582,7 +560,7 @@ export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps
                   </div>
                 );
               })}
-            </div>
+            </Virtualizer>
           )}
 
           {ready && hasChanges && parsedFiles.length === 0 && (

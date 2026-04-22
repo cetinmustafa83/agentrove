@@ -4,6 +4,11 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  worker: {
+    // @pierre/diffs ships an imported worker entry, so desktop builds need
+    // module workers instead of Vite's default IIFE output.
+    format: 'es',
+  },
   optimizeDeps: {
     include: ['mermaid', '@tanstack/react-query'],
     esbuildOptions: {
