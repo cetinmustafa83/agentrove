@@ -80,11 +80,12 @@ export function Header({ isAuthPage = false }: HeaderProps) {
   const navigate = useNavigate();
   const isChatPage = useMatch('/chat/:chatId');
   const isLandingPage = useMatch('/');
+  const isSettingsPage = useMatch('/settings');
   const theme = useUIStore((state) => state.theme);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
-  // Sidebar pages (landing, chat) use TitleBar + Sidebar for all controls
-  const isSidebarPage = isChatPage || isLandingPage;
+  // Pages with their own nav + UserProfileMenu — no Header needed
+  const isSidebarPage = isChatPage || isLandingPage || isSettingsPage;
 
   const logoutMutation = useLogoutMutation({
     onSuccess: () => {
