@@ -114,31 +114,30 @@ async def get_sandbox_service(
     user_settings = await user_service.get_user_settings(user.id, db=db)
 
     sandbox_id = request.path_params.get("sandbox_id")
-    if sandbox_id:
-        # Sandbox-scoped routes must use the provider persisted with that
-        # workspace so requests never hit the wrong backend.
-        query = select(Workspace.sandbox_provider, Workspace.workspace_path).where(
-            Workspace.sandbox_id == sandbox_id,
-            Workspace.user_id == user.id,
-            Workspace.deleted_at.is_(None),
+    if not sandbox_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="sandbox_id is required",
         )
-        result = await db.execute(query)
-        row = result.one_or_none()
-        if not row:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Sandbox not found",
-            )
-        sandbox_provider = row.sandbox_provider
-        sandbox_workspace_path = row.workspace_path
-    else:
-        sandbox_provider = user_settings.sandbox_provider
-        sandbox_workspace_path = None
 
-    provider_type = SandboxProviderType(sandbox_provider)
+    # Sandbox-scoped routes must use the provider persisted with that
+    # workspace so requests never hit the wrong backend.
+    query = select(Workspace.sandbox_provider, Workspace.workspace_path).where(
+        Workspace.sandbox_id == sandbox_id,
+        Workspace.user_id == user.id,
+        Workspace.deleted_at.is_(None),
+    )
+    result = await db.execute(query)
+    row = result.one_or_none()
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sandbox not found",
+        )
 
     provider = SandboxProvider.create_provider(
-        provider_type, workspace_path=sandbox_workspace_path
+        SandboxProviderType(row.sandbox_provider),
+        workspace_path=row.workspace_path,
     )
 
     env_vars = SandboxService.build_env_vars(

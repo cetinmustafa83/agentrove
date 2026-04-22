@@ -11,7 +11,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useNavigate } from 'react-router-dom';
-import type { UserSettings, UserSettingsUpdate, SandboxProviderType } from '@/types/user.types';
+import type { UserSettings, UserSettingsUpdate } from '@/types/user.types';
 import type { ApiFieldKey } from '@/types/settings.types';
 import { useDeleteAllChatsMutation } from '@/hooks/queries/useChatQueries';
 import { useSettingsQuery, useUpdateSettingsMutation } from '@/hooks/queries/useSettingsQueries';
@@ -118,7 +118,6 @@ const SettingsPage: React.FC = () => {
       const payload: UserSettingsUpdate = {};
       const fields: (keyof UserSettingsUpdate)[] = [
         'github_personal_access_token',
-        'sandbox_provider',
         'custom_instructions',
         'custom_env_vars',
         'personas',
@@ -222,10 +221,6 @@ const SettingsPage: React.FC = () => {
 
   const handleNotificationsEnabledChange = (enabled: boolean) => {
     persistSettings((prev) => ({ ...prev, notifications_enabled: enabled }));
-  };
-
-  const handleSandboxProviderChange = (provider: SandboxProviderType) => {
-    persistSettings((prev) => ({ ...prev, sandbox_provider: provider }));
   };
 
   const confirmDeleteAllChats = async () => {
@@ -468,7 +463,6 @@ const SettingsPage: React.FC = () => {
                         onToggleVisibility={toggleFieldVisibility}
                         onDeleteAllChats={handleDeleteAllChats}
                         onNotificationsEnabledChange={handleNotificationsEnabledChange}
-                        onSandboxProviderChange={handleSandboxProviderChange}
                       />
                     </div>
                   )}

@@ -86,7 +86,7 @@ class AgentService:
     ) -> AcpSessionConfig:
         user_settings = await self._get_user_settings(user.id)
 
-        sandbox_provider = chat.sandbox_provider
+        sandbox_provider = SandboxProviderType(chat.sandbox_provider)
         sandbox_id: str = chat.sandbox_id or ""
         workspace_path = chat.workspace_path
         # "" is the canonical workspace-relative root cwd; providers resolve
@@ -107,7 +107,7 @@ class AgentService:
                 cwd = chat.worktree_cwd
             else:
                 provider = SandboxProvider.create_provider(
-                    SandboxProviderType(sandbox_provider),
+                    sandbox_provider,
                     workspace_path=workspace_path,
                 )
                 git_service = GitService(SandboxService(provider))
@@ -314,14 +314,14 @@ class AgentService:
 
         if chat and chat.sandbox_id:
             sandbox_id = chat.sandbox_id
-            sandbox_provider = chat.sandbox_provider
+            sandbox_provider = SandboxProviderType(chat.sandbox_provider)
             workspace_path = chat.workspace_path
         else:
             # No chat/sandbox (title/commit-message/etc. one-shot calls) — use
             # $HOME as the workspace root so the session-create edge still
             # resolves cwd uniformly via the provider.
             sandbox_id = ""
-            sandbox_provider = SandboxProviderType.HOST.value
+            sandbox_provider = SandboxProviderType.HOST
             workspace_path = os.environ.get("HOME", "/tmp")
         cwd = ""
 
@@ -386,7 +386,7 @@ class AgentService:
         session_id: str | None,
         thinking_mode: str | None = None,
         cwd: str = "",
-        sandbox_provider: str = SandboxProviderType.DOCKER.value,
+        sandbox_provider: SandboxProviderType,
         sandbox_id: str = "",
         workspace_path: str | None = None,
         system_prompt: str | None = None,

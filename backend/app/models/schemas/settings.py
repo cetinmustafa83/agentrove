@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -17,7 +16,6 @@ class Persona(BaseModel):
 
 class UserSettingsBase(BaseModel):
     github_personal_access_token: str | None = None
-    sandbox_provider: Literal["docker", "host"] = "docker"
     custom_instructions: str | None = None
     custom_env_vars: list[CustomEnvVar] | None = None
     personas: list[Persona] | None = None

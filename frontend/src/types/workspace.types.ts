@@ -1,4 +1,4 @@
-import type { CustomSkill } from './user.types';
+import type { CustomSkill, SandboxProviderType } from './user.types';
 import type { AgentKind } from './chat.types';
 import type { SlashCommand } from './ui.types';
 
@@ -9,7 +9,7 @@ export interface Workspace {
   name: string;
   user_id: string;
   sandbox_id: string;
-  sandbox_provider: string;
+  sandbox_provider: SandboxProviderType;
   workspace_path: string;
   source_type?: string | null;
   source_url?: string | null;
@@ -24,7 +24,7 @@ export interface CreateWorkspaceRequest {
   source_type: WorkspaceSourceType;
   workspace_path?: string;
   git_url?: string;
-  sandbox_provider?: 'docker' | 'host';
+  sandbox_provider: SandboxProviderType;
 }
 
 export interface UpdateWorkspaceRequest {

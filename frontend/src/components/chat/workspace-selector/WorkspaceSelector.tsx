@@ -377,7 +377,6 @@ export function WorkspaceSelector({
   const { data: settings } = useSettingsQuery({ enabled });
   const createWorkspace = useCreateWorkspaceMutation();
 
-  const defaultProvider = settings?.sandbox_provider;
   const hasGitHubToken = Boolean(settings?.github_personal_access_token);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -389,13 +388,6 @@ export function WorkspaceSelector({
   const [repoSearchQuery, setRepoSearchQuery] = useState('');
   const [debouncedRepoQuery, setDebouncedRepoQuery] = useState('');
   const [showUrlInput, setShowUrlInput] = useState(false);
-  // Form state initialization from server settings — useEffect is correct here
-  // because sandboxProvider is user-editable form state that diverges from the source
-  useEffect(() => {
-    if (defaultProvider) {
-      setSandboxProvider(defaultProvider);
-    }
-  }, [defaultProvider]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedRepoQuery(repoSearchQuery), 300);
@@ -423,11 +415,11 @@ export function WorkspaceSelector({
     setCreationMode('none');
     setEmptyName('');
     setGitUrl('');
-    setSandboxProvider(defaultProvider ?? 'docker');
+    setSandboxProvider('docker');
     setRepoSearchQuery('');
     setDebouncedRepoQuery('');
     setShowUrlInput(false);
-  }, [defaultProvider]);
+  }, []);
 
   const selectWorkspace = useCallback(
     (workspace: Workspace) => {

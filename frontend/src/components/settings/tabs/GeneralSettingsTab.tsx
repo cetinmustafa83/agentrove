@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/primitives/Button';
 import { Switch } from '@/components/ui/primitives/Switch';
 import { SegmentedControl } from '@/components/ui/primitives/SegmentedControl';
 import type { ApiFieldKey, GeneralSecretFieldConfig } from '@/types/settings.types';
-import type { UserSettings, SandboxProviderType } from '@/types/user.types';
+import type { UserSettings } from '@/types/user.types';
 import type { Theme } from '@/types/ui.types';
 import { useUIStore } from '@/store/uiStore';
 import { SecretInput } from '@/components/settings/inputs/SecretInput';
@@ -16,7 +16,6 @@ interface GeneralSettingsTabProps {
   onToggleVisibility: (field: ApiFieldKey) => void;
   onDeleteAllChats: () => void;
   onNotificationsEnabledChange: (enabled: boolean) => void;
-  onSandboxProviderChange: (provider: SandboxProviderType) => void;
 }
 
 function SectionCard({
@@ -63,7 +62,6 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
   onToggleVisibility,
   onDeleteAllChats,
   onNotificationsEnabledChange,
-  onSandboxProviderChange,
 }) => (
   <div className="space-y-4">
     <SectionCard title="API Keys & Authentication">
@@ -90,22 +88,6 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
             />
           </div>
         ))}
-      </div>
-    </SectionCard>
-
-    <SectionCard title="Sandbox Provider">
-      <div className="space-y-4">
-        <p className="mb-2 text-xs text-text-tertiary dark:text-text-dark-tertiary">
-          Select the sandbox environment for code execution.
-        </p>
-        <SegmentedControl
-          value={settings.sandbox_provider}
-          onChange={(val) => onSandboxProviderChange(val as SandboxProviderType)}
-          options={[
-            { value: 'host', label: 'Host (Local)', disabled: false },
-            { value: 'docker', label: 'Docker (Local)', disabled: false },
-          ]}
-        />
       </div>
     </SectionCard>
 
