@@ -18,6 +18,7 @@ export interface ViewProps {
   sandboxId?: string;
   chatId?: string;
   onToggleFileTree?: () => void;
+  isFileTreeCollapsed?: boolean;
   targetLine?: { path: string; line: number; nonce: number } | null;
 }
 
@@ -27,6 +28,7 @@ export const View = memo(function View({
   sandboxId,
   chatId,
   onToggleFileTree,
+  isFileTreeCollapsed,
   targetLine,
 }: ViewProps) {
   const theme = useResolvedTheme();
@@ -247,6 +249,7 @@ export const View = memo(function View({
         isSaving={updateFileMutation.isPending}
         onSave={handleUpdateFile}
         onToggleFileTree={onToggleFileTree}
+        isFileTreeCollapsed={isFileTreeCollapsed}
         onToggleFullscreen={
           isPreviewable && showPreview ? handleTogglePreviewFullscreen : undefined
         }

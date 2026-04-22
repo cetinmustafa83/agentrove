@@ -12,7 +12,7 @@ import {
   Undo2,
   type LucideIcon,
 } from 'lucide-react';
-import { FileIcon } from '@/components/editor/file-tree/FileIcon';
+import { FileIcon } from '@/components/ui/shared/FileIcon';
 import { Button } from '@/components/ui/primitives/Button';
 import { SegmentedControl } from '@/components/ui/primitives/SegmentedControl';
 import { Spinner } from '@/components/ui/primitives/Spinner';

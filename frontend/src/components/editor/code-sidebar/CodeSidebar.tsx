@@ -1,153 +1,209 @@
-import { memo } from 'react';
-import { Download, Loader2, PanelLeftClose } from 'lucide-react';
+import { memo, useCallback, useMemo, useState, type Ref } from 'react';
+import { ArrowLeft, Download, Loader2, MoreHorizontal, RefreshCw, Search } from 'lucide-react';
 import { Button } from '@/components/ui/primitives/Button';
-import { RefreshButton } from '@/components/ui/shared/RefreshButton';
-import { Tree } from '../file-tree/Tree';
+import { useDropdown } from '@/hooks/useDropdown';
+import { Tree, type TreeHandle } from '../file-tree/Tree';
 import { SearchPanel } from '../file-search/SearchPanel';
 import type { FileStructure } from '@/types/file-system.types';
 import { cn } from '@/utils/cn';
 
-export type SidebarTab = 'files' | 'search';
-
 export interface CodeSidebarProps {
   files: FileStructure[];
   selectedFile: FileStructure | null;
-  expandedFolders: Record<string, boolean>;
   onFileSelect: (file: FileStructure) => void;
-  onToggleFolder: (path: string) => void;
   onOpenResult: (path: string, lineNumber: number) => void;
   onDownload?: () => void;
   isDownloading?: boolean;
   isSandboxSyncing?: boolean;
   onRefresh?: () => void;
   isRefreshing?: boolean;
-  onClose?: () => void;
   modifiedPaths?: Set<string>;
   sandboxId: string | undefined;
   cwd?: string;
-  activeTab: SidebarTab;
-  onActiveTabChange: (tab: SidebarTab) => void;
+  treeRef?: Ref<TreeHandle>;
 }
+
+type View = 'files' | 'search';
 
 export const CodeSidebar = memo(function CodeSidebar({
   files,
   selectedFile,
-  expandedFolders,
   onFileSelect,
-  onToggleFolder,
   onOpenResult,
   onDownload,
   isDownloading = false,
   isSandboxSyncing = false,
   onRefresh,
   isRefreshing = false,
-  onClose,
   modifiedPaths,
   sandboxId,
   cwd,
-  activeTab,
-  onActiveTabChange,
+  treeRef,
 }: CodeSidebarProps) {
+  const [view, setView] = useState<View>('files');
+
+  const handleSearchFiles = useCallback(() => setView('search'), []);
+  const handleBackToFiles = useCallback(() => setView('files'), []);
+
+  // Stable element preserves Tree's memo when unrelated sidebar props change.
+  const treeHeader = useMemo(
+    () => (
+      <TreeHeader
+        onRefresh={onRefresh}
+        isRefreshing={isRefreshing}
+        onDownload={onDownload}
+        isDownloading={isDownloading}
+        onSearchFiles={handleSearchFiles}
+      />
+    ),
+    [onRefresh, isRefreshing, onDownload, isDownloading, handleSearchFiles],
+  );
+
   return (
     <div className="flex h-full flex-col bg-surface-secondary dark:bg-surface-dark-secondary">
-      <div className="flex flex-none items-center justify-between border-b border-border/50 px-2 py-1 dark:border-border-dark/50">
-        <div className="flex items-center gap-0.5" role="tablist" aria-label="Sidebar sections">
-          <TabButton
-            label="Files"
-            isActive={activeTab === 'files'}
-            onClick={() => onActiveTabChange('files')}
-          />
-          <TabButton
-            label="Search"
-            isActive={activeTab === 'search'}
-            onClick={() => onActiveTabChange('search')}
-          />
-        </div>
-
-        <div className="flex items-center gap-0.5">
-          {onRefresh && (
-            <RefreshButton
-              onClick={onRefresh}
-              isRefreshing={isRefreshing}
-              ariaLabel="Refresh files"
-              useLoader
-            />
-          )}
-
-          {onDownload && (
-            <Button
-              onClick={onDownload}
-              disabled={isDownloading}
-              variant="unstyled"
-              className="rounded-md p-1 text-text-quaternary transition-colors duration-200 hover:text-text-secondary disabled:cursor-wait disabled:opacity-50 dark:text-text-dark-quaternary dark:hover:text-text-dark-secondary"
-              title="Download"
-              aria-label="Download files"
-            >
-              {isDownloading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Download className="h-3 w-3" />
-              )}
-            </Button>
-          )}
-
-          {onClose && (
-            <Button
-              onClick={onClose}
-              variant="unstyled"
-              className="rounded-md p-1 text-text-quaternary transition-colors duration-200 hover:text-text-secondary dark:text-text-dark-quaternary dark:hover:text-text-dark-secondary"
-              title="Close sidebar"
-              aria-label="Close sidebar"
-            >
-              <PanelLeftClose className="h-3 w-3" />
-            </Button>
-          )}
-        </div>
+      <div className={cn('min-h-0 flex-1', view !== 'files' && 'hidden')}>
+        <Tree
+          ref={treeRef}
+          files={files}
+          selectedFile={selectedFile}
+          onFileSelect={onFileSelect}
+          isSandboxSyncing={isSandboxSyncing}
+          modifiedPaths={modifiedPaths}
+          header={treeHeader}
+        />
       </div>
-
-      <div className="min-h-0 flex-1">
-        {/* Both panels stay mounted so the user's search query and scroll
-            position survive tab switches. Inactive tab is hidden via CSS. */}
-        <div className={cn('h-full', activeTab !== 'files' && 'hidden')}>
-          <Tree
-            files={files}
-            selectedFile={selectedFile}
-            expandedFolders={expandedFolders}
-            onFileSelect={onFileSelect}
-            onToggleFolder={onToggleFolder}
-            isSandboxSyncing={isSandboxSyncing}
-            modifiedPaths={modifiedPaths}
-          />
+      {view === 'search' && (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <SearchHeader onBack={handleBackToFiles} />
+          <div className="min-h-0 flex-1">
+            <SearchPanel sandboxId={sandboxId} cwd={cwd} onOpenResult={onOpenResult} />
+          </div>
         </div>
-        <div className={cn('h-full', activeTab !== 'search' && 'hidden')}>
-          <SearchPanel sandboxId={sandboxId} cwd={cwd} onOpenResult={onOpenResult} />
-        </div>
-      </div>
+      )}
     </div>
   );
 });
 
-interface TabButtonProps {
-  label: string;
-  isActive: boolean;
-  onClick: () => void;
+interface TreeHeaderProps {
+  onRefresh?: () => void;
+  isRefreshing: boolean;
+  onDownload?: () => void;
+  isDownloading: boolean;
+  onSearchFiles: () => void;
 }
 
-function TabButton({ label, isActive, onClick }: TabButtonProps) {
+function TreeHeader({
+  onRefresh,
+  isRefreshing,
+  onDownload,
+  isDownloading,
+  onSearchFiles,
+}: TreeHeaderProps) {
+  const { isOpen, setIsOpen, dropdownRef } = useDropdown();
+
+  const handleAction = useCallback(
+    (action: () => void) => {
+      action();
+      setIsOpen(false);
+    },
+    [setIsOpen],
+  );
+
+  return (
+    <div className="flex h-7 items-center justify-between px-3">
+      <span className="text-2xs font-medium uppercase tracking-wider text-text-quaternary dark:text-text-dark-quaternary">
+        Files
+      </span>
+      <div ref={dropdownRef} className="relative">
+        <Button
+          variant="unstyled"
+          onClick={() => setIsOpen((prev) => !prev)}
+          aria-label="File tree options"
+          aria-expanded={isOpen}
+          className="rounded-md p-1 text-text-quaternary transition-colors duration-150 hover:text-text-secondary dark:text-text-dark-quaternary dark:hover:text-text-dark-secondary"
+        >
+          <MoreHorizontal className="h-3 w-3" />
+        </Button>
+        {isOpen && (
+          <div
+            role="menu"
+            className="absolute right-0 top-full z-20 mt-1 min-w-[160px] animate-fadeIn overflow-hidden rounded-lg border border-border/50 bg-surface-secondary/95 shadow-medium backdrop-blur-xl dark:border-border-dark/50 dark:bg-surface-dark-secondary/95"
+          >
+            <MenuItem
+              icon={Search}
+              label="Search in files"
+              onClick={() => handleAction(onSearchFiles)}
+            />
+            {onRefresh && (
+              <MenuItem
+                icon={isRefreshing ? Loader2 : RefreshCw}
+                iconSpinning={isRefreshing}
+                label="Refresh"
+                onClick={() => handleAction(onRefresh)}
+              />
+            )}
+            {onDownload && (
+              <MenuItem
+                icon={isDownloading ? Loader2 : Download}
+                iconSpinning={isDownloading}
+                label="Download"
+                onClick={() => handleAction(onDownload)}
+                disabled={isDownloading}
+              />
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface MenuItemProps {
+  icon: React.ComponentType<{ className?: string }>;
+  iconSpinning?: boolean;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}
+
+function MenuItem({ icon: Icon, iconSpinning, label, onClick, disabled }: MenuItemProps) {
   return (
     <Button
       variant="unstyled"
-      role="tab"
-      aria-selected={isActive}
+      role="menuitem"
       onClick={onClick}
+      disabled={disabled}
       className={cn(
-        'rounded-md px-2 py-1 text-2xs font-medium uppercase tracking-wider transition-colors duration-150',
-        isActive
-          ? 'bg-surface-active text-text-primary dark:bg-surface-dark-active dark:text-text-dark-primary'
-          : 'text-text-quaternary hover:text-text-secondary dark:text-text-dark-quaternary dark:hover:text-text-dark-secondary',
+        'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors duration-150',
+        'text-text-secondary hover:bg-surface-hover hover:text-text-primary',
+        'dark:text-text-dark-secondary dark:hover:bg-surface-dark-hover dark:hover:text-text-dark-primary',
+        'disabled:cursor-wait disabled:opacity-50',
       )}
     >
+      <Icon className={cn('h-3 w-3 shrink-0', iconSpinning && 'animate-spin')} />
       {label}
     </Button>
+  );
+}
+
+interface SearchHeaderProps {
+  onBack: () => void;
+}
+
+function SearchHeader({ onBack }: SearchHeaderProps) {
+  return (
+    <div className="flex h-9 flex-none items-center gap-2 border-b border-border/50 px-3 dark:border-border-dark/50">
+      <Button
+        variant="unstyled"
+        onClick={onBack}
+        aria-label="Back to files"
+        className="rounded-md p-1 text-text-quaternary transition-colors duration-150 hover:text-text-secondary dark:text-text-dark-quaternary dark:hover:text-text-dark-secondary"
+      >
+        <ArrowLeft className="h-3 w-3" />
+      </Button>
+      <span className="text-2xs font-medium uppercase tracking-wider text-text-quaternary dark:text-text-dark-quaternary">
+        Search
+      </span>
+    </div>
   );
 }

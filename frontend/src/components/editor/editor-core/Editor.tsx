@@ -1,21 +1,10 @@
-import { memo, useState, useCallback, useMemo } from 'react';
+import { memo, useState, useCallback } from 'react';
 import { logger } from '@/utils/logger';
 import { CodeView } from '../code-view/CodeView';
 import type { FileStructure } from '@/types/file-system.types';
 import type { Chat } from '@/types/chat.types';
 import { useResolvedTheme } from '@/hooks/useResolvedTheme';
 import { sandboxService } from '@/services/sandboxService';
-
-const collectFolderPaths = (items: FileStructure[], validPaths: Set<string>) => {
-  items.forEach((item) => {
-    if (item.type === 'folder') {
-      validPaths.add(item.path);
-      if (item.children) {
-        collectFolderPaths(item.children, validPaths);
-      }
-    }
-  });
-};
 
 export interface EditorProps {
   files: FileStructure[];
@@ -37,36 +26,6 @@ export const Editor = memo(function Editor({
   isRefreshing = false,
 }: EditorProps) {
   const theme = useResolvedTheme();
-  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
-
-  const validFolderPaths = useMemo(() => {
-    const validPaths = new Set<string>();
-    if (files.length > 0) {
-      collectFolderPaths(files, validPaths);
-    }
-    return validPaths;
-  }, [files]);
-
-  const currentExpandedFolders = useMemo(() => {
-    const newState: Record<string, boolean> = {};
-
-    validFolderPaths.forEach((path) => {
-      newState[path] = path in expandedFolders ? expandedFolders[path] : true;
-    });
-
-    return newState;
-  }, [expandedFolders, validFolderPaths]);
-
-  const toggleFolder = useCallback((path: string) => {
-    setExpandedFolders((prev) => {
-      const currentValue = path in prev ? prev[path] : true;
-      return {
-        ...prev,
-        [path]: !currentValue,
-      };
-    });
-  }, []);
-
   const [isDownloading, setIsDownloading] = useState(false);
 
   const handleDownload = useCallback(async () => {
@@ -104,9 +63,7 @@ export const Editor = memo(function Editor({
       <CodeView
         files={files}
         selectedFile={selectedFile}
-        expandedFolders={currentExpandedFolders}
         onFileSelect={onFileSelect}
-        toggleFolder={toggleFolder}
         theme={theme}
         sandboxId={currentChat?.sandbox_id}
         chatId={currentChat?.id}

@@ -2,11 +2,11 @@ import { memo, useState, useCallback, useEffect, useRef } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import type { ImperativePanelHandle } from 'react-resizable-panels';
 import { CodeSidebar } from '../code-sidebar/CodeSidebar';
-import type { SidebarTab } from '../code-sidebar/CodeSidebar';
+import type { TreeHandle } from '../file-tree/Tree';
 import { View } from '../editor-view/View';
 import type { FileStructure } from '@/types/file-system.types';
 import { cn } from '@/utils/cn';
-import { findFileInStructure, getAncestorFolderPaths } from '@/utils/file';
+import { findFileInStructure } from '@/utils/file';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useMountEffect } from '@/hooks/useMountEffect';
 import { useUIStore } from '@/store/uiStore';
@@ -14,9 +14,7 @@ import { useUIStore } from '@/store/uiStore';
 export interface CodeViewProps {
   files: FileStructure[];
   selectedFile: FileStructure | null;
-  expandedFolders: Record<string, boolean>;
   onFileSelect: (file: FileStructure | null) => void;
-  toggleFolder: (path: string) => void;
   theme: string;
   sandboxId?: string;
   chatId?: string;
@@ -28,23 +26,10 @@ export interface CodeViewProps {
   isRefreshing?: boolean;
 }
 
-const scrollSelectedFileIntoView = (container: HTMLElement | null, path: string) => {
-  if (!container) return;
-  // Two rAFs: first for React to flush folder-expansion state, second for the layout to settle.
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      const el = container.querySelector<HTMLElement>(`[data-file-path="${CSS.escape(path)}"]`);
-      el?.scrollIntoView({ block: 'center' });
-    });
-  });
-};
-
 export const CodeView = memo(function CodeView({
   files,
   selectedFile,
-  expandedFolders,
   onFileSelect,
-  toggleFolder,
   theme,
   sandboxId,
   chatId,
@@ -59,9 +44,8 @@ export const CodeView = memo(function CodeView({
   const isMobile = useIsMobile();
   const [showMobileTree, setShowMobileTree] = useState(false);
   const fileTreePanelRef = useRef<ImperativePanelHandle>(null);
-  const fileTreeContainerRef = useRef<HTMLDivElement>(null);
+  const treeRef = useRef<TreeHandle>(null);
   const [isFileTreeCollapsed, setIsFileTreeCollapsed] = useState(true);
-  const [activeTab, setActiveTab] = useState<SidebarTab>('files');
   const [targetLine, setTargetLine] = useState<{
     path: string;
     line: number;
@@ -92,17 +76,15 @@ export const CodeView = memo(function CodeView({
     setIsFileTreeCollapsed(false);
     if (!selectedFile || selectedFile.type !== 'file') return;
 
-    // Expand any collapsed ancestor folders so the selected file renders in the DOM before scrolling.
-    // Editor.tsx normalizes expandedFolders so unknown paths default to `true`; `=== false` matches
-    // only explicitly-collapsed folders and avoids toggling implicit-true defaults closed.
-    for (const ancestorPath of getAncestorFolderPaths(selectedFile.path)) {
-      if (expandedFolders[ancestorPath] === false) {
-        toggleFolder(ancestorPath);
-      }
-    }
-
-    scrollSelectedFileIntoView(fileTreeContainerRef.current, selectedFile.path);
-  }, [selectedFile, expandedFolders, toggleFolder]);
+    // Expand collapsed ancestor folders and scroll the selected file into view
+    // via pierre's imperative handle. rAF lets the panel finish expanding first
+    // so the tree has a non-zero viewport height to scroll within.
+    const path = selectedFile.path;
+    requestAnimationFrame(() => {
+      treeRef.current?.expandAncestors(path);
+      treeRef.current?.focusPath(path);
+    });
+  }, [selectedFile]);
 
   const handleMobileFileSelect = useCallback(
     (file: FileStructure | null) => {
@@ -151,13 +133,9 @@ export const CodeView = memo(function CodeView({
     useUIStore.getState().consumeFileJump();
   }, [pendingFileJump]);
 
-  // Shared sidebar props — mobile and desktop differ only in the file-select
-  // handler and close callback, so everything else is hoisted once here.
   const sharedSidebarProps = {
     files,
     selectedFile,
-    expandedFolders,
-    onToggleFolder: toggleFolder,
     onOpenResult: handleOpenResult,
     onDownload,
     isDownloading,
@@ -166,8 +144,7 @@ export const CodeView = memo(function CodeView({
     isRefreshing,
     sandboxId,
     cwd,
-    activeTab,
-    onActiveTabChange: setActiveTab,
+    treeRef,
   };
 
   if (isMobile) {
@@ -191,11 +168,7 @@ export const CodeView = memo(function CodeView({
                 backgroundClass,
               )}
             >
-              <CodeSidebar
-                {...sharedSidebarProps}
-                onFileSelect={handleMobileFileSelect}
-                onClose={() => setShowMobileTree(false)}
-              />
+              <CodeSidebar {...sharedSidebarProps} onFileSelect={handleMobileFileSelect} />
             </div>
           </>
         )}
@@ -228,15 +201,10 @@ export const CodeView = memo(function CodeView({
           onExpand={handleFileTreeExpand}
         >
           <div
-            ref={fileTreeContainerRef}
             data-code-sidebar
             className={`h-full overflow-hidden border-r border-border dark:border-border-dark ${backgroundClass}`}
           >
-            <CodeSidebar
-              {...sharedSidebarProps}
-              onFileSelect={onFileSelect}
-              onClose={handleToggleFileTree}
-            />
+            <CodeSidebar {...sharedSidebarProps} onFileSelect={onFileSelect} />
           </div>
         </Panel>
 
@@ -258,7 +226,8 @@ export const CodeView = memo(function CodeView({
               fileStructure={files}
               sandboxId={sandboxId}
               chatId={chatId}
-              onToggleFileTree={isFileTreeCollapsed ? handleToggleFileTree : undefined}
+              onToggleFileTree={handleToggleFileTree}
+              isFileTreeCollapsed={isFileTreeCollapsed}
               targetLine={targetLine}
             />
           </div>

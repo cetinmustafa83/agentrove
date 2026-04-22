@@ -1,9 +1,9 @@
 import { memo } from 'react';
-import { AlertTriangle, Code, FileText, PanelLeft, Maximize2 } from 'lucide-react';
+import { AlertTriangle, Code, FileText, PanelLeft, PanelLeftClose, Maximize2 } from 'lucide-react';
 import type { FileStructure } from '@/types/file-system.types';
 import { Button } from '@/components/ui/primitives/Button';
 import { SaveButton } from '@/components/ui/shared/SaveButton';
-import { FileIcon } from '@/components/editor/file-tree/FileIcon';
+import { FileIcon } from '@/components/ui/shared/FileIcon';
 import { isPreviewableFile } from '@/utils/fileTypes';
 import { getFileName } from '@/utils/file';
 import { cn } from '@/utils/cn';
@@ -18,6 +18,7 @@ export interface HeaderProps {
   isSaving?: boolean;
   onSave?: () => void;
   onToggleFileTree?: () => void;
+  isFileTreeCollapsed?: boolean;
   onToggleFullscreen?: () => void;
 }
 
@@ -31,8 +32,10 @@ export const Header = memo(function Header({
   isSaving = false,
   onSave,
   onToggleFileTree,
+  isFileTreeCollapsed = false,
   onToggleFullscreen,
 }: HeaderProps) {
+  const ToggleIcon = isFileTreeCollapsed ? PanelLeft : PanelLeftClose;
   const isPreviewable = selectedFile ? isPreviewableFile(selectedFile) : false;
 
   if (!filePath) return null;
@@ -50,9 +53,9 @@ export const Header = memo(function Header({
               'dark:text-text-dark-quaternary dark:hover:text-text-dark-secondary',
               'transition-colors duration-150',
             )}
-            aria-label="Toggle file tree"
+            aria-label={isFileTreeCollapsed ? 'Open file tree' : 'Close file tree'}
           >
-            <PanelLeft size={14} />
+            <ToggleIcon size={14} />
           </Button>
         )}
         <FileIcon name={getFileName(filePath)} className="h-3.5 w-3.5 shrink-0" />

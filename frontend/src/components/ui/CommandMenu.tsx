@@ -39,7 +39,7 @@ import { useGitBranchesQuery, useCheckoutBranchMutation } from '@/hooks/queries/
 import { fuzzySearch } from '@/utils/fuzzySearch';
 import { getLeaves } from '@/utils/mosaicHelpers';
 import { traverseFileStructure, getFileName } from '@/utils/file';
-import { HighlightMatch } from '@/components/editor/file-tree/HighlightMatch';
+import { HighlightMatch } from '@/components/ui/shared/HighlightMatch';
 import { SearchPanel } from '@/components/editor/file-search/SearchPanel';
 import { cn } from '@/utils/cn';
 import type { ViewType, MosaicDirection } from '@/types/ui.types';

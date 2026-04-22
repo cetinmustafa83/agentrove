@@ -47,7 +47,6 @@ export const SkillEditDialog: React.FC<SkillEditDialogProps> = ({
 }) => {
   const [files, setFiles] = useState<SkillFileEntry[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileStructure | null>(null);
-  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
   const [modifiedFiles, setModifiedFiles] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -68,7 +67,6 @@ export const SkillEditDialog: React.FC<SkillEditDialogProps> = ({
     if (!isOpen || !skill) return;
     setFiles([]);
     setSelectedFile(null);
-    setExpandedFolders({});
     setModifiedFiles(new Map());
     setError(null);
     setLoading(true);
@@ -79,7 +77,6 @@ export const SkillEditDialog: React.FC<SkillEditDialogProps> = ({
       .then((loaded) => {
         if (cancelled) return;
         setFiles(loaded);
-        setExpandedFolders(collectFolderPathsFromFiles(loaded));
         const firstTextFile = loaded.find((file) => !file.is_binary);
         if (firstTextFile) {
           setSelectedFile({
@@ -135,10 +132,6 @@ export const SkillEditDialog: React.FC<SkillEditDialogProps> = ({
     [files, selectedFile],
   );
 
-  const handleToggleFolder = useCallback((path: string) => {
-    setExpandedFolders((previous) => ({ ...previous, [path]: !previous[path] }));
-  }, []);
-
   const handleSave = useCallback(async () => {
     if (!skill) return;
 
@@ -180,9 +173,7 @@ export const SkillEditDialog: React.FC<SkillEditDialogProps> = ({
             <Tree
               files={fileTree}
               selectedFile={selectedFile}
-              expandedFolders={expandedFolders}
               onFileSelect={setSelectedFile}
-              onToggleFolder={handleToggleFolder}
               modifiedPaths={modifiedPaths}
             />
           )}
@@ -263,15 +254,4 @@ function skillFilesToFileTree(files: SkillFileEntry[]): FileStructure[] {
   }
 
   return sortFiles(root);
-}
-
-function collectFolderPathsFromFiles(files: SkillFileEntry[]): Record<string, boolean> {
-  const expandedFolders: Record<string, boolean> = {};
-  for (const file of files) {
-    const parts = file.path.split('/');
-    for (let index = 1; index < parts.length; index += 1) {
-      expandedFolders[parts.slice(0, index).join('/')] = true;
-    }
-  }
-  return expandedFolders;
 }
