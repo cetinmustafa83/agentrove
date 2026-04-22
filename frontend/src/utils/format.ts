@@ -11,6 +11,12 @@ export const formatValue = (value: unknown): string => {
 
 export const extractFilename = (path: string): string => path.split('/').pop() ?? path;
 
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function formatNumberCompact(num: number): string {
   if (num < 1000) return num.toString();
   if (num < 1000000) return Math.round(num / 1000) + 'K';

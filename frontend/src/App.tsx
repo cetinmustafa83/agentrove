@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState, Suspense, lazy } from 'react';
 import { useMountEffect } from '@/hooks/useMountEffect';
 import { Layout } from '@/components/layout/Layout';
 import { Toaster } from 'react-hot-toast';
-import toast from 'react-hot-toast';
 import { useAuthStore } from '@/store/authStore';
 import { useResolvedTheme } from '@/hooks/useResolvedTheme';
 import { useCurrentUserQuery } from '@/hooks/queries/useAuthQueries';
@@ -17,9 +16,8 @@ import { AuthRoute } from '@/components/routes/AuthRoute';
 import { setApiPort } from '@/lib/api';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { check } from '@tauri-apps/plugin-updater';
-import { ask } from '@tauri-apps/plugin-dialog';
 import { authStorage } from '@/utils/storage';
+import { checkDesktopUpdate } from '@/services/desktopUpdateService';
 import { DesktopDragRegion } from '@/components/layout/TitleBar';
 
 const LandingPage = lazy(() =>
@@ -40,27 +38,6 @@ const ResetPasswordPage = lazy(() =>
   import('@/pages/ResetPasswordPage').then((m) => ({ default: m.ResetPasswordPage })),
 );
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
-
-async function checkDesktopUpdate(): Promise<void> {
-  const update = await check();
-  if (!update?.available) {
-    return;
-  }
-
-  const shouldInstall = await ask(`Agentrove ${update.version} is available. Install now?`, {
-    title: 'Update Available',
-    kind: 'info',
-  });
-  if (!shouldInstall) {
-    return;
-  }
-
-  toast.loading('Downloading desktop update...', { id: 'desktop-update' });
-  await update.downloadAndInstall();
-  toast.success(`Agentrove ${update.version} installed. Restart app to finish update.`, {
-    id: 'desktop-update',
-  });
-}
 
 function AppContent() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);

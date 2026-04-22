@@ -3,12 +3,7 @@ import { Zap, Edit2 } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { Button } from '@/components/ui/primitives/Button';
 import { SkillEditDialog } from '@/components/settings/dialogs/SkillEditDialog';
-
-const formatBytes = (bytes: number): string => {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
+import { formatBytes } from '@/utils/format';
 
 interface SkillsSettingsTabProps {
   skills: CustomSkill[] | undefined;
