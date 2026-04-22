@@ -28,16 +28,16 @@ const Editor = lazy(() =>
   import('@/components/editor/editor-core/Editor').then((m) => ({ default: m.Editor })),
 );
 const SecretsView = lazy(() =>
-  import('@/components/views/SecretsView').then((m) => ({ default: m.SecretsView })),
+  import('@/components/sandbox/secrets/SecretsView').then((m) => ({ default: m.SecretsView })),
 );
 const DiffView = lazy(() =>
-  import('@/components/views/DiffView').then((m) => ({ default: m.DiffView })),
+  import('@/components/sandbox/git/DiffView').then((m) => ({ default: m.DiffView })),
 );
 const TerminalContainer = lazy(() =>
   import('@/components/sandbox/terminal/Container').then((m) => ({ default: m.Container })),
 );
 const PRReviewView = lazy(() =>
-  import('@/components/views/PRReviewView').then((m) => ({ default: m.PRReviewView })),
+  import('@/components/sandbox/git/PRReviewView').then((m) => ({ default: m.PRReviewView })),
 );
 const CreateBranchDialog = lazy(() =>
   import('@/components/chat/github/CreateBranchDialog').then((m) => ({
