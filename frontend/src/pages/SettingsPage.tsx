@@ -24,6 +24,9 @@ import toast from 'react-hot-toast';
 import { GeneralSettingsTab } from '@/components/settings/tabs/GeneralSettingsTab';
 import { SkillsSettingsTab } from '@/components/settings/tabs/SkillsSettingsTab';
 import { SettingsProvider } from '@/contexts/SettingsContext';
+import { UserProfileMenu } from '@/components/layout/UserProfileMenu';
+import { useCurrentUserQuery, useLogoutMutation } from '@/hooks/queries/useAuthQueries';
+import { useAuthStore } from '@/store/authStore';
 import { getGeneralSecretFields } from '@/utils/settings';
 import { PersonasSection } from '@/components/settings/sections/PersonasSection';
 import { EnvVarsSection } from '@/components/settings/sections/EnvVarsSection';
@@ -72,6 +75,15 @@ const tabLoadingFallback = (
 
 const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const { data: currentUser } = useCurrentUserQuery({ enabled: isAuthenticated });
+  const userDisplayName = currentUser?.username || currentUser?.email || '';
+  const logoutMutation = useLogoutMutation({
+    onSuccess: () => {
+      useAuthStore.getState().setAuthenticated(false);
+      navigate('/login');
+    },
+  });
   const [activeTab, setActiveTab] = useState<TabKey>('general');
   const [isDeleteAllDialogOpen, setIsDeleteAllDialogOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -265,7 +277,7 @@ const SettingsPage: React.FC = () => {
     <div className="flex h-full overflow-hidden bg-surface dark:bg-surface-dark">
       {/* Vertical settings navigation — desktop */}
       <nav
-        className="hidden w-56 shrink-0 flex-col border-r border-border bg-surface-secondary dark:border-border-dark dark:bg-surface-dark-secondary md:flex"
+        className="hidden w-72 shrink-0 flex-col border-r border-border bg-surface-secondary dark:border-border-dark dark:bg-surface-dark-secondary md:flex"
         aria-label="Settings sections"
       >
         <div className="border-b border-border px-5 py-4 dark:border-border-dark">
@@ -314,6 +326,14 @@ const SettingsPage: React.FC = () => {
               </Button>
             );
           })}
+        </div>
+
+        <div className="flex-shrink-0 border-t border-border/50 px-4 py-2.5 dark:border-border-dark/50">
+          <UserProfileMenu
+            displayName={userDisplayName}
+            onOpenSettings={() => navigate('/settings')}
+            onSignOut={() => logoutMutation.mutate()}
+          />
         </div>
       </nav>
 
