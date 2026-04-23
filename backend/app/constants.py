@@ -131,6 +131,7 @@ MODELS: dict[str, ModelInfo] = {
     "sonnet[1m]": ModelInfo("Sonnet", AgentKind.CLAUDE, 1_000_000),
     "opus[1m]": ModelInfo("Opus", AgentKind.CLAUDE, 1_000_000),
     "haiku": ModelInfo("Haiku", AgentKind.CLAUDE, 200_000),
+    "gpt-5.5": ModelInfo("GPT 5.5", AgentKind.CODEX, 1_000_000),
     "gpt-5.4": ModelInfo("GPT 5.4", AgentKind.CODEX, 1_000_000),
     "gpt-5.4-mini": ModelInfo("GPT 5.4 Mini", AgentKind.CODEX, 400_000),
     "gpt-5.3-codex": ModelInfo("GPT 5.3 Codex", AgentKind.CODEX, 400_000),

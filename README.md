@@ -99,7 +99,7 @@ For git-backed workspaces, chats can opt into worktree isolation. Agentrove crea
 Current model families exposed by the backend:
 
 - **Claude**: `sonnet[1m]`, `opus[1m]`, `haiku`
-- **Codex**: `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.2-codex`, `gpt-5.2`, `gpt-5.1-codex-max`, `gpt-5.1-codex-mini`
+- **Codex**: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `gpt-5.2-codex`, `gpt-5.2`, `gpt-5.1-codex-max`, `gpt-5.1-codex-mini`
 - **Copilot**: Claude and GPT model variants exposed through Copilot ACP
 - **Cursor**: Cursor composer, GPT, Claude, Gemini, Grok, and other Cursor ACP model variants
 - **OpenCode**: OpenCode-hosted and provider-backed ACP model variants
