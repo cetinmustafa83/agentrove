@@ -70,7 +70,7 @@ class AcpSessionConfig:
     # Everything needed to spawn an ACP agent process and create a session.
     # Built by AgentService._build_acp_config() from chat/user/model state.
     sandbox_id: str
-    sandbox_provider: str
+    sandbox_provider: SandboxProviderType
     cwd: str
     agent_kind: AgentKind = AgentKind.CLAUDE
     env: dict[str, str] = field(default_factory=dict)
@@ -285,7 +285,7 @@ class AcpSession:
         # Resolve the workspace-relative cwd to a runtime-absolute path via the
         # provider — the single edge where relative → absolute translation lives.
         provider = SandboxProvider.create_provider(
-            SandboxProviderType(config.sandbox_provider),
+            config.sandbox_provider,
             workspace_path=config.workspace_path,
         )
         spawn_config = replace(config, cwd=provider.resolve_workspace_path(config.cwd))
@@ -460,9 +460,9 @@ class AcpSession:
 
     @staticmethod
     async def _spawn_process(config: AcpSessionConfig) -> asyncio.subprocess.Process:
-        if config.sandbox_provider == SandboxProviderType.DOCKER.value:
+        if config.sandbox_provider is SandboxProviderType.DOCKER:
             return await AcpSession._spawn_docker(config)
-        if config.sandbox_provider == SandboxProviderType.HOST.value:
+        if config.sandbox_provider is SandboxProviderType.HOST:
             return await AcpSession._spawn_host(config)
         raise ValueError(f"Unknown sandbox provider: {config.sandbox_provider}")
 

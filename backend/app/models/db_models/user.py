@@ -76,9 +76,6 @@ class UserSettings(Base):
     github_personal_access_token: Mapped[str | None] = mapped_column(
         EncryptedString, nullable=True
     )
-    sandbox_provider: Mapped[str] = mapped_column(
-        String(32), default="docker", server_default="docker", nullable=False
-    )
     custom_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     custom_env_vars: Mapped[list[CustomEnvVarDict] | None] = mapped_column(
         JSON, nullable=True

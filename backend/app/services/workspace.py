@@ -31,7 +31,6 @@ from app.services.db import BaseDbService, SessionFactoryType
 from app.services.exceptions import ErrorCode, WorkspaceException
 from app.services.sandbox import SandboxService
 from app.services.sandbox_providers.base import SandboxProvider
-from app.services.sandbox_providers.types import SandboxProviderType
 from app.services.session_registry import session_registry
 from app.services.skill import SkillService
 from app.services.user import UserService
@@ -105,13 +104,12 @@ class WorkspaceService(BaseDbService[Workspace]):
             workspace_path = str(workspace_dir)
             source_url = None
 
-        resolved_provider = data.sandbox_provider or user_settings.sandbox_provider
         env_vars = SandboxService.build_env_vars(
             user_settings.custom_env_vars,
             github_token,
         )
         provider = SandboxProvider.create_provider(
-            SandboxProviderType(resolved_provider),
+            data.sandbox_provider,
             workspace_path=workspace_path,
         )
         sandbox_service = SandboxService(provider, env_vars=env_vars)
@@ -131,7 +129,7 @@ class WorkspaceService(BaseDbService[Workspace]):
                     name=data.name,
                     user_id=user.id,
                     sandbox_id=sandbox_id,
-                    sandbox_provider=resolved_provider,
+                    sandbox_provider=data.sandbox_provider,
                     workspace_path=workspace_path,
                     source_type=data.source_type,
                     source_url=source_url,

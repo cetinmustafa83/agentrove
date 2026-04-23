@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.services.sandbox_providers.types import SandboxProviderType
+
 
 class CustomSkill(BaseModel):
     name: str
@@ -25,7 +27,7 @@ class WorkspaceCreate(BaseModel):
     source_type: Literal["git", "local", "empty"] = "empty"
     workspace_path: str | None = Field(None, max_length=2048)
     git_url: str | None = Field(None, max_length=2048)
-    sandbox_provider: Literal["docker", "host"] | None = None
+    sandbox_provider: SandboxProviderType
 
 
 class WorkspaceUpdate(BaseModel):
@@ -39,7 +41,7 @@ class Workspace(BaseModel):
     name: str
     user_id: UUID
     sandbox_id: str
-    sandbox_provider: str
+    sandbox_provider: SandboxProviderType
     workspace_path: str
     source_type: str | None = None
     source_url: str | None = None

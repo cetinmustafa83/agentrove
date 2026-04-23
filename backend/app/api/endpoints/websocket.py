@@ -40,7 +40,7 @@ async def terminal_websocket(
     # server→client ping so idle connections keep NAT/LB state alive.
     await websocket.accept()
 
-    user, _ = await wait_for_websocket_auth(websocket)
+    user = await wait_for_websocket_auth(websocket)
     if not user:
         await websocket.close(code=WS_CLOSE_AUTH_FAILED, reason="Authentication failed")
         return
