@@ -1,4 +1,5 @@
 import { check, type Update } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
 import { useDesktopUpdateStore } from '@/store/updateStore';
 
 // Silently check for an update and stage it in the store. Does NOT download —
@@ -32,9 +33,10 @@ async function downloadAndInstall(update: Update): Promise<void> {
       }
     });
     useDesktopUpdateStore.getState().setInstalling();
-    // install() exits the current process on Windows and restarts the app
-    // on macOS — no separate relaunch() call needed.
     await update.install();
+    // On Windows install() exits the current process; on macOS/Linux it
+    // replaces the bundle in place and requires an explicit relaunch.
+    await relaunch();
   } catch (error) {
     useDesktopUpdateStore
       .getState()
