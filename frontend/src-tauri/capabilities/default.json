@@ -13,6 +13,8 @@
     "core:window:allow-start-dragging",
     "store:default",
     "updater:default",
+    "process:default",
+    "process:allow-restart",
     "notification:default",
     "dialog:default",
     "opener:default"
