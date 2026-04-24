@@ -68,7 +68,7 @@ export const Tree = memo(function Tree({
     initialExpansion: 'open',
     initialSelectedPaths: selectedFile ? [selectedFile.path] : [],
     search: true,
-    icons: 'minimal',
+    icons: 'complete',
     itemHeight: 26,
     unsafeCSS: UNSAFE_CSS,
     onSelectionChange: (selectedPaths) => {
