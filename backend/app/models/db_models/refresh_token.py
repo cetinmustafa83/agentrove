@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import DateTime, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base_class import Base, PG_GEN_UUID
+from app.db.base_class import Base
 from app.db.types import GUID
 
 
@@ -15,7 +15,6 @@ class RefreshToken(Base):
         GUID(),
         primary_key=True,
         default=uuid.uuid4,
-        server_default=PG_GEN_UUID,
     )
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(

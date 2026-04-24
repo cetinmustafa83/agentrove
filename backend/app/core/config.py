@@ -10,6 +10,8 @@ from pydantic import ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings
 from pythonjsonlogger import jsonlogger
 
+DEFAULT_DATABASE_URL = "sqlite+aiosqlite:////app/storage/agentrove.db"
+
 
 def _desktop_data_dir() -> Path:
     system = platform.system()
@@ -32,9 +34,7 @@ class Settings(BaseSettings):
     REQUIRE_EMAIL_VERIFICATION: bool = False
     REGISTRATION_DISABLED: bool = False
 
-    DATABASE_URL: str = (
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/agentrove"
-    )
+    DATABASE_URL: str = DEFAULT_DATABASE_URL
     REDIS_URL: str = "redis://localhost:6379/0"
 
     SECRET_KEY: str = ""
@@ -69,18 +69,6 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in v.split(",")]
         return v
 
-    @field_validator("DATABASE_URL", mode="before")
-    @classmethod
-    def build_database_url(cls, v: str) -> str:
-        # Normalize the various Postgres URL schemes that hosting providers use
-        # (postgres://, postgresql://) to the asyncpg driver SQLAlchemy expects.
-        if isinstance(v, str):
-            if v.startswith("postgres://"):
-                return v.replace("postgres://", "postgresql+asyncpg://", 1)
-            if v.startswith("postgresql://"):
-                return v.replace("postgresql://", "postgresql+asyncpg://", 1)
-        return v
-
     @field_validator("SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, v: str) -> str:
@@ -92,18 +80,15 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def apply_desktop_defaults(self) -> "Settings":
-        # Desktop (Tauri) mode uses a local SQLite DB and platform-specific data
-        # dir instead of the Docker-based Postgres/Redis defaults. Also adds
-        # Tauri origins so the webview can reach the local API.
+        # Desktop (Tauri) mode redirects the SQLite DB and storage path to a
+        # platform-specific user data dir, and adds Tauri origins so the
+        # webview can reach the local API.
         if not self.DESKTOP_MODE:
             return self
         data_dir = _desktop_data_dir()
         data_dir.mkdir(parents=True, exist_ok=True)
         default_db = f"sqlite+aiosqlite:///{(data_dir / 'agentrove.db').as_posix()}"
-        if (
-            self.DATABASE_URL
-            == "postgresql+asyncpg://postgres:postgres@localhost:5432/agentrove"
-        ):
+        if self.DATABASE_URL == DEFAULT_DATABASE_URL:
             self.DATABASE_URL = default_db
         if self.STORAGE_PATH == "/app/storage":
             self.STORAGE_PATH = str(data_dir / "storage")

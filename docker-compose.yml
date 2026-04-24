@@ -1,22 +1,6 @@
 name: agentrove-web
 
 services:
-  postgres:
-    image: postgres:17-alpine
-    container_name: agentrove-postgres-web
-    restart: always
-    command: -c max_connections=600
-    env_file: .env
-    ports:
-      - "${POSTGRES_PORT}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   redis:
     image: redis:7-alpine
     container_name: agentrove-redis-web
@@ -51,8 +35,6 @@ services:
     group_add:
       - "0"
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
       sandbox-setup:
@@ -89,7 +71,5 @@ networks:
     name: agentrove-sandbox-net
 
 volumes:
-  postgres_data:
-    driver: local
   redis_data:
     driver: local

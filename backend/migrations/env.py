@@ -1,13 +1,12 @@
 from logging.config import fileConfig
-import asyncio
-from sqlalchemy import pool
+
+from sqlalchemy import create_engine, pool
 import sqlalchemy as sa
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy.dialects import postgresql
 
 from alembic import context
 from app.db.base_class import Base
+from app.db.sqlite import enable_foreign_keys
 from app.models.db_models import chat, refresh_token, user, workspace  # noqa: F401
 from app.core.config import get_settings
 from app.db.types import GUID, EncryptedString, EncryptedJSON
@@ -21,13 +20,6 @@ target_metadata = Base.metadata
 
 settings = get_settings()
 database_url = settings.DATABASE_URL
-if database_url.startswith("postgresql://"):
-    database_url = database_url.replace("postgresql://", "postgresql+asyncpg://")
-
-_SERVER_DEFAULT_MAP = {
-    "gen_random_uuid()": "uuid_server_default()",
-    "now()": "now_server_default()",
-}
 
 _HELPERS_IMPORT = "from app.db.migration_helpers import uuid_server_default, now_server_default"
 
@@ -46,11 +38,9 @@ def render_item(type_, obj, autogen_context):
 
     if type_ == "server_default":
         arg = getattr(obj, "arg", obj)
-        if isinstance(arg, sa.sql.elements.TextClause):
-            replacement = _SERVER_DEFAULT_MAP.get(str(arg.text))
-            if replacement:
-                autogen_context.imports.add(_HELPERS_IMPORT)
-                return replacement
+        if isinstance(arg, sa.sql.elements.TextClause) and str(arg.text) == "CURRENT_TIMESTAMP":
+            autogen_context.imports.add(_HELPERS_IMPORT)
+            return "now_server_default()"
         if isinstance(arg, sa.sql.functions.Function) and arg.name == "now":
             autogen_context.imports.add(_HELPERS_IMPORT)
             return "now_server_default()"
@@ -66,9 +56,8 @@ def compare_server_default(
     metadata_default,
     rendered_metadata_default,
 ):
-    json_types = (sa.JSON, postgresql.JSON, postgresql.JSONB)
-    if isinstance(inspected_column.type, json_types) or isinstance(
-        metadata_column.type, json_types
+    if isinstance(inspected_column.type, sa.JSON) or isinstance(
+        metadata_column.type, sa.JSON
     ):
         return False
     return None
@@ -100,29 +89,13 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
-async def run_async_migrations() -> None:
-    connectable = create_async_engine(
-        database_url,
-        poolclass=pool.NullPool,
-    )
-
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-
-    await connectable.dispose()
-
-
 def run_migrations_online() -> None:
-    url = config.get_main_option("sqlalchemy.url", "")
-    if url.startswith("sqlite"):
-        from sqlalchemy import create_engine
-
-        engine = create_engine(url, poolclass=pool.NullPool)
-        with engine.connect() as connection:
-            do_run_migrations(connection)
-        engine.dispose()
-    else:
-        asyncio.run(run_async_migrations())
+    sync_url = database_url.replace("sqlite+aiosqlite://", "sqlite://", 1)
+    engine = create_engine(sync_url, poolclass=pool.NullPool)
+    enable_foreign_keys(engine)
+    with engine.connect() as connection:
+        do_run_migrations(connection)
+    engine.dispose()
 
 
 if context.is_offline_mode():

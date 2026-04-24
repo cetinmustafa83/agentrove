@@ -1,14 +1,7 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, func, text
+from sqlalchemy import DateTime, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy.sql.elements import TextClause
-
-from app.core.config import get_settings
-
-PG_GEN_UUID: TextClause | None = (
-    None if get_settings().DESKTOP_MODE else text("gen_random_uuid()")
-)
 
 
 def _utc_now() -> datetime:

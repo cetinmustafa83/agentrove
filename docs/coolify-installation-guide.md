@@ -7,16 +7,15 @@ This guide provides step-by-step instructions for deploying Agentrove on any VPS
 1. [Prerequisites](#prerequisites)
 2. [Connect GitHub Repository](#connect-github-repository)
 3. [Create Project & Environment](#create-project--environment)
-4. [Add PostgreSQL Database](#add-postgresql-database)
-5. [Add Redis Database](#add-redis-database)
-6. [Add API Application](#add-api-application)
-7. [In-Process Maintenance Jobs](#in-process-maintenance-jobs)
-8. [Add Frontend Application](#add-frontend-application)
-9. [Deploy All Services](#deploy-all-services)
-10. [Post-Deployment Configuration](#post-deployment-configuration)
-11. [Troubleshooting](#troubleshooting)
-12. [Environment Variables Reference](#environment-variables-reference)
-13. [Optional Environment Variables](#optional-environment-variables)
+4. [Add Redis Database](#add-redis-database)
+5. [Add API Application](#add-api-application)
+6. [In-Process Maintenance Jobs](#in-process-maintenance-jobs)
+7. [Add Frontend Application](#add-frontend-application)
+8. [Deploy All Services](#deploy-all-services)
+9. [Post-Deployment Configuration](#post-deployment-configuration)
+10. [Troubleshooting](#troubleshooting)
+11. [Environment Variables Reference](#environment-variables-reference)
+12. [Optional Environment Variables](#optional-environment-variables)
 
 ---
 
@@ -88,44 +87,6 @@ This environment will contain all your Agentrove services.
 
 ---
 
-## Add PostgreSQL Database
-
-### Step 1: Add Database Resource
-
-1. Inside your production environment, click **+ Add New Resource**
-2. Select **Database**
-3. Choose **PostgreSQL**
-
-### Step 2: Configure PostgreSQL
-
-Configure the following settings:
-
-| Setting | Value |
-|---------|-------|
-| Name | `postgres` |
-| Image | `postgres:17-alpine` |
-| Database | `postgres` |
-| Username | `postgres` |
-| Password | *(auto-generated or custom)* |
-
-### Step 3: Add Custom Configuration
-
-In the **Custom PostgreSQL Configuration** section, add:
-
-```
-max_connections=600
-```
-
-This increases the connection limit to support multiple Celery workers and API instances.
-
-### Step 4: Deploy PostgreSQL
-
-Click **Deploy** and wait for the database to start. Verify it shows a green health status.
-
-> **Important**: Note down the internal connection details. You'll need them for the API configuration.
-
----
-
 ## Add Redis Database
 
 ### Step 1: Add Database Resource
@@ -184,9 +145,12 @@ In **Advanced** → **Custom Docker Options**, add:
 ```
 --privileged
 -v /var/run/docker.sock:/var/run/docker.sock
+-v agentrove_storage:/app/storage
 ```
 
 > **Warning**: The `--privileged` flag and Docker socket mount are required for the sandbox feature to create isolated containers. Only use this on trusted deployments.
+
+> **Important**: The `agentrove_storage` named volume persists the SQLite database and uploaded files across redeploys. Without it, your data will be lost on every redeploy.
 
 ### Step 5: Configure Environment Variables
 
@@ -195,7 +159,7 @@ Navigate to the **Environment Variables** tab and add the following:
 ```env
 ENVIRONMENT=production
 SECRET_KEY=your-secure-secret-key-minimum-32-characters
-DATABASE_URL=postgresql+asyncpg://postgres:YOUR_POSTGRES_PASSWORD@postgres:5432/postgres
+DATABASE_URL=sqlite+aiosqlite:////app/storage/agentrove.db
 REDIS_URL=redis://redis:6379/0
 BASE_URL=https://yourdomain.com
 FRONTEND_URL=https://yourdomain.com
@@ -214,8 +178,8 @@ TRUSTED_PROXY_HOSTS=*
 |----------|-------------|
 | `ENVIRONMENT` | Set to `production` for production deployments |
 | `SECRET_KEY` | Secure random string (32+ chars) for JWT signing |
-| `DATABASE_URL` | PostgreSQL connection string with asyncpg driver |
-| `REDIS_URL` | Redis connection string for caching and distributed locks |
+| `DATABASE_URL` | SQLite connection string (file under `/app/storage`, mount a persistent volume) |
+| `REDIS_URL` | Redis connection string (caching and pub/sub) |
 | `BASE_URL` | Public URL of the API service |
 | `FRONTEND_URL` | Public URL of the frontend |
 | `ALLOWED_ORIGINS` | CORS allowed origins (frontend URL) |
@@ -250,11 +214,11 @@ Scheduled task execution and cleanup jobs run inside the API service lifecycle.
 
 - No separate worker service is required
 - No separate beat service is required
-- Redis is still required for distributed job locking when API runs with multiple workers
+- Redis is still required for caching and pub/sub
 
 ### Deployment impact
 
-- Deploy only `api`, `postgres`, `redis`, and `frontend`
+- Deploy only `api`, `redis`, and `frontend`
 - Ensure Redis is reachable from the API service
 
 ---
@@ -316,7 +280,6 @@ Your production environment should now have the following resources:
 
 | Service | Type | Domain |
 |---------|------|--------|
-| postgres | Database | (internal) |
 | redis | Database | (internal) |
 | api | Application | yourdomain.com/api |
 | frontend | Application | yourdomain.com |
@@ -325,10 +288,9 @@ Your production environment should now have the following resources:
 
 Deploy services in this order to ensure dependencies are ready:
 
-1. **PostgreSQL** - Wait for green status
-2. **Redis** - Wait for green status
-3. **API** - Wait for green status and health check
-4. **Frontend** - Wait for green status
+1. **Redis** - Wait for green status
+2. **API** - Wait for green status and health check
+3. **Frontend** - Wait for green status
 
 ### Step 3: Verify Health Status
 
@@ -415,14 +377,13 @@ If you enabled sandbox functionality:
 **Symptom**: API fails to start with database connection errors
 
 **Solutions**:
-1. Verify PostgreSQL is running (green status)
-2. Check `DATABASE_URL` format is correct
-3. Ensure password doesn't contain special characters that need URL encoding
-4. Verify the postgres container name matches your configuration
+1. Verify the `agentrove_storage` volume is mounted at `/app/storage` in the API container
+2. Check `DATABASE_URL` points to a path inside `/app/storage` (e.g. `sqlite+aiosqlite:////app/storage/agentrove.db`)
+3. Confirm the API container has write permissions to `/app/storage`
 
 ```bash
-# Test connection from VPS
-docker exec -it <postgres-container-id> psql -U postgres
+# Inspect the SQLite file inside the API container
+docker exec -it <api-container-id> ls -la /app/storage
 ```
 
 ### Docker Socket Permission Errors (Linux VPS)
@@ -467,22 +428,22 @@ ls -la /var/run/docker.sock
 2. Wait for Coolify to provision Let's Encrypt certificates (can take a few minutes)
 3. Check Coolify logs for certificate provisioning errors
 
-### Celery Workers Not Processing Tasks
+### Messages Sent but No AI Responses
 
-**Symptom**: Messages sent but no AI responses
+**Symptom**: User submits a message but the chat never streams a reply
 
 **Solutions**:
-1. Check Celery worker logs for errors
-2. Verify Redis is running and accessible
-3. Ensure `REDIS_URL` is correct in worker environment variables
-4. Check if workers are connected to the correct queue
+1. Check the API container logs for errors during stream handling
+2. Verify Redis is running and reachable from the API (pub/sub is used to fan out stream events)
+3. Confirm the configured AI provider credentials are valid in **Settings → Providers**
+4. Hit `https://yourdomain.com/api/v1/readyz` and confirm `database` and `redis` both report `ok`
 
 ### Out of Memory Errors
 
 **Symptom**: Services randomly restart, OOM killer messages in logs
 
 **Solutions**:
-1. Reduce number of Celery workers
+1. Reduce concurrent sandbox sessions
 2. Add swap space to your VPS:
 
 ```bash
@@ -529,8 +490,8 @@ ENVIRONMENT=production
 # Security
 SECRET_KEY=your-secure-secret-key-minimum-32-characters
 
-# Database
-DATABASE_URL=postgresql+asyncpg://postgres:PASSWORD@postgres:5432/postgres
+# Database (SQLite file inside the persistent storage volume)
+DATABASE_URL=sqlite+aiosqlite:////app/storage/agentrove.db
 
 # Redis
 REDIS_URL=redis://redis:6379/0
@@ -710,11 +671,10 @@ CONTEXT_USAGE_CACHE_TTL_SECONDS=600
 
 After successfully deploying Agentrove:
 
-1. **Set up backups** - Configure PostgreSQL backups in Coolify
+1. **Set up backups** - Snapshot the `agentrove_storage` volume (or the `agentrove.db` file inside it) on a schedule
 2. **Monitor resources** - Use Coolify's built-in monitoring
 3. **Configure email** - Set up SMTP for email verification (optional)
 4. **Custom domain** - Add additional custom domains if needed
-5. **Scale workers** - Add more Celery workers as usage grows
 
 ---
 

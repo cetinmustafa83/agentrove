@@ -4,9 +4,7 @@ pydantic>=2.0,<3.0
 pydantic-settings
 email-validator
 sqlalchemy[asyncio]
-asyncpg
 aiosqlite
-psycopg[binary]
 alembic
 python-jose[cryptography]
 cryptography

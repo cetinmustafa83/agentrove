@@ -102,9 +102,7 @@ exclude = [
 
 [tool.deptry.per_rule_ignores]
 DEP002 = [
-    "asyncpg",
     "aiosqlite",
-    "psycopg",
     "python-multipart",
     "bcrypt",
     "email-validator",

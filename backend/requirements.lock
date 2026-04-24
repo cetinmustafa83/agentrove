@@ -30,8 +30,6 @@ argon2-cffi==23.1.0
     # via pwdlib
 argon2-cffi-bindings==25.1.0
     # via argon2-cffi
-asyncpg==0.31.0
-    # via -r backend/requirements.txt
 attrs==25.4.0
     # via aiohttp
 bcrypt==4.1.2
@@ -127,10 +125,6 @@ propcache==0.4.1
     # via
     #   aiohttp
     #   yarl
-psycopg==3.3.2
-    # via -r backend/requirements.txt
-psycopg-binary==3.3.2
-    # via psycopg
 pwdlib==0.2.0
     # via fastapi-users
 pyasn1==0.6.2
@@ -200,7 +194,6 @@ typing-extensions==4.15.0
     #   anyio
     #   fastapi
     #   limits
-    #   psycopg
     #   pydantic
     #   pydantic-core
     #   sqlalchemy

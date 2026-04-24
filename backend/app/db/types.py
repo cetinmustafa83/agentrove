@@ -5,7 +5,6 @@ from typing import Any
 
 from cryptography.fernet import InvalidToken
 from sqlalchemy import CHAR, String, Text
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.types import TypeDecorator
 
@@ -17,11 +16,6 @@ def enum_values(enum_class: type[Enum]) -> list[str]:
 class GUID(TypeDecorator[uuid_module.UUID]):
     impl = CHAR(32)
     cache_ok = True
-
-    def load_dialect_impl(self, dialect: Dialect) -> Any:
-        if dialect.name == "postgresql":
-            return dialect.type_descriptor(UUID())
-        return dialect.type_descriptor(CHAR(32))
 
     def process_bind_param(self, value: Any, _dialect: Dialect) -> str | None:
         if value is None:
