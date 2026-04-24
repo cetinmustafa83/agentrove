@@ -11,7 +11,7 @@ from app.models.types import (
     PersonaDict,
 )
 
-from app.db.base_class import Base, PG_GEN_UUID
+from app.db.base_class import Base
 from app.db.types import GUID, EncryptedString
 
 
@@ -22,7 +22,6 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
         GUID(),
         primary_key=True,
         default=uuid.uuid4,
-        server_default=PG_GEN_UUID,
     )
     email: Mapped[str] = mapped_column(String(length=320), unique=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(length=256), nullable=False)
@@ -68,7 +67,6 @@ class UserSettings(Base):
         GUID(),
         primary_key=True,
         default=uuid.uuid4,
-        server_default=PG_GEN_UUID,
     )
     user_id: Mapped[UUID] = mapped_column(
         GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True

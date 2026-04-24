@@ -6,25 +6,19 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
 from app.core.config import get_settings
+from app.db.sqlite import enable_foreign_keys
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def _to_sync_url(db_url: str) -> str:
-    if db_url.startswith("postgresql+asyncpg://"):
-        return db_url.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
-    if db_url.startswith("sqlite+aiosqlite:///"):
-        return db_url.replace("sqlite+aiosqlite:///", "sqlite:///", 1)
-    return db_url
-
-
 def check_and_run_migrations():
     settings = get_settings()
-    db_url = _to_sync_url(settings.DATABASE_URL)
+    db_url = settings.DATABASE_URL.replace("sqlite+aiosqlite://", "sqlite://", 1)
     is_production = settings.ENVIRONMENT.lower() == "production"
 
     engine = create_engine(db_url)
+    enable_foreign_keys(engine)
 
     try:
         with engine.connect():

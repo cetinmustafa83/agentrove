@@ -33,7 +33,7 @@ Join the [Discord server](https://discord.gg/HvkJU8dcBA).
 ```text
 React/Vite Frontend
   -> FastAPI Backend
-  -> PostgreSQL + Redis (web mode)
+  -> SQLite + Redis (web mode)
   -> SQLite + in-memory cache/pubsub (desktop mode)
   -> Workspace sandbox (Docker or Host)
   -> Claude Code ACP / Codex ACP
@@ -188,7 +188,6 @@ pre-commit run --all-files
 
 - Frontend: `3000`
 - Backend API: `8080`
-- PostgreSQL: `5432`
 - Redis: `6379`
 
 ## Desktop (macOS)
@@ -266,7 +265,7 @@ Agentrove also syncs local Claude and Codex auth/config files into sandboxes whe
 ## Tech Stack
 
 - Frontend: React 19, TypeScript, Vite, TailwindCSS, Zustand, React Query, Monaco, xterm.js
-- Backend: FastAPI, SQLAlchemy, Redis, PostgreSQL/SQLite
+- Backend: FastAPI, SQLAlchemy, Redis, SQLite
 - Runtime: Claude Code, Codex CLI, ACP, Docker, Tauri
 
 ## License
