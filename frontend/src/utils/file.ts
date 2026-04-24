@@ -126,7 +126,17 @@ export function filterChatAttachmentFiles(
   files: File[],
   { toastOnError = true }: { toastOnError?: boolean } = {},
 ): File[] {
-  const supportedFiles = files.filter(isSupportedUploadedFile);
+  const supportedFiles: File[] = [];
+  const unsupportedFiles: File[] = [];
+
+  for (const file of files) {
+    if (isSupportedUploadedFile(file)) {
+      supportedFiles.push(file);
+    } else {
+      unsupportedFiles.push(file);
+    }
+  }
+
   const validFiles: File[] = [];
   const oversizedFiles: File[] = [];
 
@@ -135,6 +145,14 @@ export function filterChatAttachmentFiles(
       oversizedFiles.push(file);
     } else {
       validFiles.push(file);
+    }
+  }
+
+  if (toastOnError && unsupportedFiles.length > 0) {
+    if (unsupportedFiles.length === 1) {
+      toast.error(`File "${unsupportedFiles[0].name}" is not a supported file type`);
+    } else {
+      toast.error(`${unsupportedFiles.length} files are not a supported file type`);
     }
   }
 
