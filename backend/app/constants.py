@@ -207,6 +207,12 @@ MODELS: dict[str, ModelInfo] = {
     "opencode:opencode/nemotron-3-super-free": ModelInfo(
         "Nemotron 3 Super Free (OpenCode)", AgentKind.OPENCODE, 204_800
     ),
+    "opencode:opencode-go/deepseek-v4-flash": ModelInfo(
+        "DeepSeek V4 Flash (Opencode Go)", AgentKind.OPENCODE, 1_000_000
+    ),
+    "opencode:opencode-go/deepseek-v4-pro": ModelInfo(
+        "DeepSeek V4 Pro (Opencode Go)", AgentKind.OPENCODE, 1_000_000
+    ),
     "opencode:opencode-go/glm-5": ModelInfo(
         "GLM-5 (Opencode Go)", AgentKind.OPENCODE, 204_800
     ),
@@ -224,6 +230,12 @@ MODELS: dict[str, ModelInfo] = {
     ),
     "opencode:opencode-go/mimo-v2-pro": ModelInfo(
         "MiMo V2 Pro (Opencode Go)", AgentKind.OPENCODE, 1_048_576
+    ),
+    "opencode:opencode-go/mimo-v2.5": ModelInfo(
+        "MiMo V2.5 (Opencode Go)", AgentKind.OPENCODE, 262_144
+    ),
+    "opencode:opencode-go/mimo-v2.5-pro": ModelInfo(
+        "MiMo V2.5 Pro (Opencode Go)", AgentKind.OPENCODE, 1_048_576
     ),
     "opencode:opencode-go/minimax-m2.5": ModelInfo(
         "MiniMax M2.5 (Opencode Go)", AgentKind.OPENCODE, 204_800
