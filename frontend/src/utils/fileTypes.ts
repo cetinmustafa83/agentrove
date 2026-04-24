@@ -33,7 +33,9 @@ const FILE_TYPE_EXTENSIONS: Record<string, string[]> = {
   pdf: ['.pdf'],
 };
 
-export const isUploadedImageFile = (file: File): boolean => checkMimeType(file, 'image/*');
+// Must match backend ALLOWED_IMAGE_TYPES (image/jpeg, image/png, image/gif, image/webp)
+export const isUploadedImageFile = (file: File): boolean =>
+  checkMimeType(file, ['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
 export const isUploadedPdfFile = (file: File): boolean =>
   checkMimeType(file, 'application/pdf', '.pdf');
