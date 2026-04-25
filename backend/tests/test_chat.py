@@ -1,13 +1,15 @@
 from collections.abc import AsyncIterator
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.endpoints import chat as chat_endpoint
+from app.constants import MODELS, REDIS_KEY_CHAT_CONTEXT_USAGE
 from app.core.deps import get_queue_service
-from app.models.db_models.chat import Chat, Message
+from app.models.db_models.chat import Chat, Message, MessageEvent
 from app.models.db_models.enums import MessageRole, MessageStreamStatus
 from app.models.db_models.user import User
 from app.models.db_models.workspace import Workspace
@@ -17,7 +19,7 @@ from app.services.streaming.runtime import ChatStreamRuntime
 from app.utils.cache import MemoryStore
 
 from tests.conftest import LoginClient, UserFactory
-from tests.helpers import create_authenticated_workspace
+from tests.helpers import EndpointCache, create_authenticated_workspace
 
 
 TEST_MODEL_ID = "opencode:google-vertex-anthropic/claude-sonnet-4-5@20250929"
@@ -44,6 +46,28 @@ class SendNowCapture:
         return True
 
 
+class PermissionResolver:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str]] = []
+
+    def __call__(
+        self,
+        chat_id: str,
+        request_id: str,
+        *,
+        option_id: str,
+    ) -> bool:
+        self.calls.append((chat_id, request_id, option_id))
+        return request_id == "request-1"
+
+
+@pytest.fixture
+def chat_cache(monkeypatch: pytest.MonkeyPatch) -> EndpointCache:
+    cache = EndpointCache()
+    monkeypatch.setattr(chat_endpoint, "cache_connection", cache.connect)
+    return cache
+
+
 async def create_chat_row(
     db_session: AsyncSession,
     user: User,
@@ -68,18 +92,48 @@ async def create_message_row(
     *,
     content: str,
     role: MessageRole = MessageRole.USER,
+    stream_status: MessageStreamStatus = MessageStreamStatus.COMPLETED,
+    active_stream_id: UUID | None = None,
+    last_seq: int = 0,
+    model_id: str | None = None,
 ) -> Message:
     message = Message(
         chat_id=chat.id,
         content_text=content,
         content_render={"events": [{"type": "user_text", "text": content}]},
         role=role,
-        stream_status=MessageStreamStatus.COMPLETED,
+        stream_status=stream_status,
+        active_stream_id=active_stream_id,
+        last_seq=last_seq,
+        model_id=model_id,
     )
     db_session.add(message)
     await db_session.commit()
     await db_session.refresh(message)
     return message
+
+
+async def create_message_event_row(
+    db_session: AsyncSession,
+    message: Message,
+    *,
+    stream_id: UUID,
+    seq: int,
+    event_type: str = "content",
+) -> MessageEvent:
+    event = MessageEvent(
+        chat_id=message.chat_id,
+        message_id=message.id,
+        stream_id=stream_id,
+        seq=seq,
+        event_type=event_type,
+        render_payload={"text": f"event-{seq}"},
+        audit_payload={"seq": seq},
+    )
+    db_session.add(event)
+    await db_session.commit()
+    await db_session.refresh(event)
+    return event
 
 
 async def test_create_list_and_get_chat(
@@ -294,6 +348,178 @@ async def test_chat_messages_returns_only_owned_chat_messages(
     assert body["items"][0]["id"] == str(message.id)
     assert body["items"][0]["content_text"] == "Visible message"
     assert other_response.status_code == 403
+
+
+async def test_chat_status_reports_active_stream_only_when_runtime_is_active(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_user: UserFactory,
+    login: LoginClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    headers, user, workspace = await create_authenticated_workspace(
+        db_session, create_user, login
+    )
+    chat = await create_chat_row(db_session, user, workspace)
+    stream_id = uuid4()
+    message = await create_message_row(
+        db_session,
+        chat,
+        content="Streaming response",
+        role=MessageRole.ASSISTANT,
+        stream_status=MessageStreamStatus.IN_PROGRESS,
+        active_stream_id=stream_id,
+        last_seq=7,
+    )
+
+    monkeypatch.setattr(ChatStreamRuntime, "has_active_chat", lambda _chat_id: False)
+    inactive_response = await client.get(
+        f"/api/v1/chat/chats/{chat.id}/status", headers=headers
+    )
+
+    monkeypatch.setattr(ChatStreamRuntime, "has_active_chat", lambda _chat_id: True)
+    active_response = await client.get(
+        f"/api/v1/chat/chats/{chat.id}/status", headers=headers
+    )
+
+    assert inactive_response.status_code == 200
+    assert inactive_response.json() == {
+        "has_active_task": False,
+        "message_id": None,
+        "stream_id": None,
+        "last_seq": 0,
+    }
+    assert active_response.status_code == 200
+    active_body = active_response.json()
+    assert active_body["has_active_task"] is True
+    assert active_body["message_id"] == str(message.id)
+    assert active_body["stream_id"] == str(stream_id)
+    assert active_body["last_seq"] == 7
+
+
+async def test_message_events_respect_owner_and_after_seq(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_user: UserFactory,
+    login: LoginClient,
+) -> None:
+    headers, user, workspace = await create_authenticated_workspace(
+        db_session, create_user, login
+    )
+    chat = await create_chat_row(db_session, user, workspace)
+    message = await create_message_row(
+        db_session,
+        chat,
+        content="Assistant response",
+        role=MessageRole.ASSISTANT,
+    )
+    stream_id = uuid4()
+    await create_message_event_row(db_session, message, stream_id=stream_id, seq=1)
+    second_event = await create_message_event_row(
+        db_session, message, stream_id=stream_id, seq=2
+    )
+    other_headers, _other_user, _other_workspace = await create_authenticated_workspace(
+        db_session,
+        create_user,
+        login,
+        email="events-other@example.com",
+        username="eventsother",
+    )
+
+    response = await client.get(
+        f"/api/v1/chat/messages/{message.id}/events?after_seq=1",
+        headers=headers,
+    )
+    other_response = await client.get(
+        f"/api/v1/chat/messages/{message.id}/events",
+        headers=other_headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["id"] == str(second_event.id)
+    assert body[0]["seq"] == 2
+    assert body[0]["render_payload"] == {"text": "event-2"}
+    assert body[0]["audit_payload"] == {"seq": 2}
+    assert other_response.status_code == 404
+
+
+async def test_permission_response_uses_session_registry_after_chat_access(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_user: UserFactory,
+    login: LoginClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    headers, user, workspace = await create_authenticated_workspace(
+        db_session, create_user, login
+    )
+    chat = await create_chat_row(db_session, user, workspace)
+    resolver = PermissionResolver()
+
+    monkeypatch.setattr(
+        chat_endpoint.session_registry,
+        "resolve_permission",
+        resolver,
+    )
+
+    success_response = await client.post(
+        f"/api/v1/chat/chats/{chat.id}/permissions/request-1/respond",
+        data={"option_id": "allow"},
+        headers=headers,
+    )
+    missing_response = await client.post(
+        f"/api/v1/chat/chats/{chat.id}/permissions/missing/respond",
+        data={"option_id": "allow"},
+        headers=headers,
+    )
+
+    assert success_response.status_code == 200
+    assert success_response.json() == {"success": True}
+    assert missing_response.status_code == 404
+    assert resolver.calls == [
+        (str(chat.id), "request-1", "allow"),
+        (str(chat.id), "missing", "allow"),
+    ]
+
+
+async def test_context_usage_falls_back_to_database_when_cache_is_malformed(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_user: UserFactory,
+    login: LoginClient,
+    chat_cache: EndpointCache,
+) -> None:
+    headers, user, workspace = await create_authenticated_workspace(
+        db_session, create_user, login
+    )
+    chat = await create_chat_row(db_session, user, workspace)
+    chat.context_token_usage = 1000
+    await create_message_row(
+        db_session,
+        chat,
+        content="Assistant response",
+        role=MessageRole.ASSISTANT,
+        model_id=TEST_MODEL_ID,
+    )
+
+    cache_key = REDIS_KEY_CHAT_CONTEXT_USAGE.format(chat_id=str(chat.id))
+    await chat_cache.store.set(cache_key, '{"tokens_used": "broken"}')
+
+    response = await client.get(
+        f"/api/v1/chat/chats/{chat.id}/context-usage", headers=headers
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    context_window = MODELS[TEST_MODEL_ID].context_window
+    assert context_window is not None
+    assert body == {
+        "tokens_used": 1000,
+        "context_window": context_window,
+        "percentage": (1000 / context_window) * 100,
+    }
 
 
 async def test_queue_message_lifecycle(
