@@ -35,6 +35,9 @@ class FakeGitHubService:
         self.collaborator_calls: list[tuple[str, str]] = []
         self.error: GitHubException | None = None
 
+    def __call__(self) -> "FakeGitHubService":
+        return self
+
     async def list_repositories(
         self, query: str, page: int, per_page: int
     ) -> GitHubReposResponse:
@@ -129,6 +132,9 @@ class FakeAgentService:
         self.commit_message_calls: list[tuple[str, str, User]] = []
         self.error: AgentException | None = None
 
+    def __call__(self) -> "FakeAgentService":
+        return self
+
     async def generate_pr_description(
         self, title: str, diff: str, model_id: str, user: User
     ) -> str:
@@ -144,22 +150,6 @@ class FakeAgentService:
             raise self.error
         self.commit_message_calls.append((diff, model_id, user))
         return "Generated commit message"
-
-
-class GitHubServiceOverride:
-    def __init__(self, service: FakeGitHubService) -> None:
-        self.service = service
-
-    def __call__(self) -> FakeGitHubService:
-        return self.service
-
-
-class AgentServiceOverride:
-    def __init__(self, service: FakeAgentService) -> None:
-        self.service = service
-
-    def __call__(self) -> FakeAgentService:
-        return self.service
 
 
 async def create_auth_headers(
@@ -178,7 +168,7 @@ async def test_github_service_routes_call_dependency(
     login: LoginClient,
 ) -> None:
     github = FakeGitHubService()
-    app.dependency_overrides[get_github_service] = GitHubServiceOverride(github)
+    app.dependency_overrides[get_github_service] = github
     headers = await create_auth_headers(create_user, login)
 
     repos_response = await client.get(
@@ -236,7 +226,7 @@ async def test_github_routes_translate_service_errors(
 ) -> None:
     github = FakeGitHubService()
     github.error = GitHubException("GitHub unavailable", status_code=503)
-    app.dependency_overrides[get_github_service] = GitHubServiceOverride(github)
+    app.dependency_overrides[get_github_service] = github
     headers = await create_auth_headers(create_user, login)
 
     response = await client.get("/api/v1/github/repositories", headers=headers)
@@ -252,7 +242,7 @@ async def test_github_generation_routes_call_agent_service(
     login: LoginClient,
 ) -> None:
     agent = FakeAgentService()
-    app.dependency_overrides[get_agent_service] = AgentServiceOverride(agent)
+    app.dependency_overrides[get_agent_service] = agent
     headers = await create_auth_headers(create_user, login)
 
     pr_response = await client.post(
@@ -293,7 +283,7 @@ async def test_github_generation_routes_translate_agent_errors(
 ) -> None:
     agent = FakeAgentService()
     agent.error = AgentException("Model unavailable", status_code=503)
-    app.dependency_overrides[get_agent_service] = AgentServiceOverride(agent)
+    app.dependency_overrides[get_agent_service] = agent
     headers = await create_auth_headers(create_user, login)
 
     response = await client.post(
