@@ -50,6 +50,9 @@ export const useUpdateWorkspaceMutation = createMutation<
   ({ workspaceId, data }) => workspaceService.updateWorkspace(workspaceId, data),
   (queryClient) => {
     queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+    // Search results embed workspace_name, so a rename leaves a stale label
+    // visible until the search query naturally refetches.
+    queryClient.invalidateQueries({ queryKey: queryKeys.chatsSearchAll });
   },
 );
 

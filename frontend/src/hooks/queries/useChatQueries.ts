@@ -1,4 +1,10 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import type {
   UseMutationOptions,
   UseQueryOptions,
@@ -7,7 +13,7 @@ import type {
 } from '@tanstack/react-query';
 import { chatService } from '@/services/chatService';
 import { useMessageQueueStore } from '@/store/messageQueueStore';
-import type { Chat, ContextUsage, CreateChatRequest } from '@/types/chat.types';
+import type { Chat, ChatSearchResponse, ContextUsage, CreateChatRequest } from '@/types/chat.types';
 import type { PaginatedChats } from '@/types/api.types';
 import { createMutation } from './createMutation';
 import { queryKeys } from './queryKeys';
@@ -58,6 +64,21 @@ export const useInfiniteChatsQuery = (options?: {
     initialPageParam: 1,
     enabled: options?.enabled ?? true,
     gcTime: 1000 * 60 * 1,
+  });
+};
+
+export const useSearchChatsQuery = (
+  query: string,
+  options?: Partial<UseQueryOptions<ChatSearchResponse>>,
+) => {
+  const trimmed = query.trim();
+  return useQuery({
+    queryKey: queryKeys.chatsSearch(trimmed),
+    queryFn: () => chatService.searchChats(trimmed),
+    enabled: trimmed.length >= 2,
+    placeholderData: keepPreviousData,
+    staleTime: 15_000,
+    ...options,
   });
 };
 
@@ -164,6 +185,9 @@ export const useUpdateChatMutation = createMutation<
     );
 
     queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+    // Search results embed the chat title, so a rename leaves a stale title
+    // visible until the search query is refetched.
+    queryClient.invalidateQueries({ queryKey: queryKeys.chatsSearchAll });
 
     if (updatedChat.parent_chat_id) {
       queryClient.invalidateQueries({
@@ -234,6 +258,7 @@ export const useDeleteChatMutation = createMutation<void, Error, string>(
     queryClient.removeQueries({ queryKey: queryKeys.subThreads(chatId) });
     queryClient.invalidateQueries({ queryKey: [queryKeys.chats, 'infinite'] });
     queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+    queryClient.invalidateQueries({ queryKey: queryKeys.chatsSearchAll });
     useMessageQueueStore.getState().cleanupChat(chatId);
   },
 );
@@ -241,6 +266,7 @@ export const useDeleteChatMutation = createMutation<void, Error, string>(
 export const useDeleteAllChatsMutation = createMutation<void, Error, void>(
   () => chatService.deleteAllChats(),
   (queryClient) => {
+    // removeQueries on the prefix ['chats'] also clears chatsSearch entries.
     queryClient.removeQueries({ queryKey: [queryKeys.chats] });
     queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
   },

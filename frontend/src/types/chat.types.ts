@@ -78,6 +78,29 @@ export interface ChatRequest {
   selected_persona_name: string;
 }
 
+export interface ChatSearchMatch {
+  message_id: string;
+  role: 'user' | 'assistant';
+  snippet_before: string;
+  snippet_match: string;
+  snippet_after: string;
+  created_at: string;
+}
+
+export interface ChatSearchResult {
+  chat_id: string;
+  chat_title: string;
+  workspace_id: string;
+  workspace_name: string;
+  matches: ChatSearchMatch[];
+  match_count: number;
+}
+
+export interface ChatSearchResponse {
+  results: ChatSearchResult[];
+  truncated: boolean;
+}
+
 export interface CreateChatRequest {
   title: string;
   model_id: string;

@@ -128,3 +128,28 @@ class MessageEvent(BaseModel):
 
 class PermissionRespondResponse(BaseModel):
     success: bool
+
+
+class ChatSearchMatch(BaseModel):
+    message_id: UUID
+    role: MessageRole
+    # Pre-split snippet so the frontend doesn't need to slice by char offsets —
+    # Python codepoint indices and JS UTF-16 units disagree on non-BMP chars.
+    snippet_before: str
+    snippet_match: str
+    snippet_after: str
+    created_at: datetime
+
+
+class ChatSearchResult(BaseModel):
+    chat_id: UUID
+    chat_title: str
+    workspace_id: UUID
+    workspace_name: str
+    matches: list[ChatSearchMatch]
+    match_count: int
+
+
+class ChatSearchResponse(BaseModel):
+    results: list[ChatSearchResult]
+    truncated: bool

@@ -16,7 +16,14 @@ from app.models.db_models.enums import MessageRole, MessageStreamStatus, StreamE
 from app.models.db_models.user import User
 from app.models.db_models.workspace import Workspace
 from app.models.schemas.chat import Chat as ChatSchema
-from app.models.schemas.chat import ChatCreate, ChatRequest, ChatUpdate
+from app.models.schemas.chat import (
+    ChatCreate,
+    ChatRequest,
+    ChatSearchMatch,
+    ChatSearchResponse,
+    ChatSearchResult,
+    ChatUpdate,
+)
 from app.models.schemas.chat import Message as MessageSchema
 from app.models.schemas.pagination import (
     CursorPaginatedResponse,
@@ -40,6 +47,14 @@ from app.utils.cache import CachePubSub, cache_connection, cache_pubsub
 logger = logging.getLogger(__name__)
 
 TERMINAL_STREAM_EVENT_TYPES = frozenset({"cancelled", "complete", "error"})
+
+# Snippet windowing for chat message search results — keep some context before
+# the match so the user sees what surrounds it without ballooning the payload.
+SEARCH_SNIPPET_CONTEXT_BEFORE = 30
+SEARCH_SNIPPET_MAX_LENGTH = 160
+# Safety cap on rows fetched for a single search — prevents a common query
+# (e.g. "the") on heavy chat history from loading tens of thousands of rows.
+SEARCH_MAX_ROWS = 5000
 
 
 class ChatService(BaseDbService[Chat]):
@@ -146,6 +161,122 @@ class ChatService(BaseDbService[Chat]):
                 total=total,
                 pages=math.ceil(total / pagination.per_page),
             )
+
+    async def search_messages(
+        self,
+        user: User,
+        query: str,
+        *,
+        limit: int = 50,
+        per_chat_limit: int = 5,
+    ) -> ChatSearchResponse:
+        # Searches plain-text message bodies (content_text) across all of the
+        # user's non-deleted chats and workspaces. Order: most recent matching
+        # message first; then in Python we group per-chat, capping matches per
+        # chat and total chats. The frontend further groups results by workspace
+        # for display. Caller is expected to pass a non-empty trimmed query.
+        # +1 lookahead lets us flag truncation when more chats exist than the cap
+        chat_cap = limit + 1
+
+        async with self.session_factory() as db:
+            stmt = (
+                select(
+                    Message.id,
+                    Message.chat_id,
+                    Message.role,
+                    Message.content_text,
+                    Message.created_at,
+                    Chat.title,
+                    Chat.workspace_id,
+                    Workspace.name.label("workspace_name"),
+                )
+                .join(Chat, Chat.id == Message.chat_id)
+                .join(Workspace, Workspace.id == Chat.workspace_id)
+                .where(
+                    Chat.user_id == user.id,
+                    Chat.deleted_at.is_(None),
+                    Message.deleted_at.is_(None),
+                    Message.content_text.icontains(query, autoescape=True),
+                )
+                .order_by(Message.created_at.desc())
+                .limit(SEARCH_MAX_ROWS)
+            )
+            result = await db.execute(stmt)
+            rows = result.all()
+
+        # Group by chat in insertion order (which is desc by created_at).
+        grouped: dict[UUID, ChatSearchResult] = {}
+        # Hitting the SQL cap means there may be older matches we never saw —
+        # report truncation even if the per-chat / chat-cap loop never trips.
+        truncated = len(rows) == SEARCH_MAX_ROWS
+        query_lower = query.lower()
+
+        for row in rows:
+            chat_id = row.chat_id
+            existing = grouped.get(chat_id)
+            if existing is None:
+                if len(grouped) >= chat_cap:
+                    truncated = True
+                    break
+                existing = ChatSearchResult(
+                    chat_id=chat_id,
+                    chat_title=row.title,
+                    workspace_id=row.workspace_id,
+                    workspace_name=row.workspace_name,
+                    matches=[],
+                    match_count=0,
+                )
+                grouped[chat_id] = existing
+
+            existing.match_count += 1
+            if len(existing.matches) >= per_chat_limit:
+                truncated = True
+                continue
+
+            before, match_text, after = self._build_snippet(
+                row.content_text, query_lower
+            )
+            existing.matches.append(
+                ChatSearchMatch(
+                    message_id=row.id,
+                    role=row.role,
+                    snippet_before=before,
+                    snippet_match=match_text,
+                    snippet_after=after,
+                    created_at=row.created_at,
+                )
+            )
+
+        # The loop only sets truncated when a NEW chat would push us past the
+        # lookahead cap; if we land at exactly limit+1 and the rows end there,
+        # we still drop a chat in the slice below — flag it.
+        if len(grouped) > limit:
+            truncated = True
+        return ChatSearchResponse(
+            results=list(grouped.values())[:limit], truncated=truncated
+        )
+
+    @staticmethod
+    def _build_snippet(content: str, query_lower: str) -> tuple[str, str, str]:
+        # Slide a window around the first match so long messages don't bloat
+        # the payload. Returns (before, match, after) — pre-split so consumers
+        # don't need to reason about codepoint vs UTF-16 indices.
+        idx = content.lower().find(query_lower)
+        if idx < 0:
+            # Shouldn't happen since the SQL filter matched, but fall back to head.
+            return content[:SEARCH_SNIPPET_MAX_LENGTH], "", ""
+
+        start = max(0, idx - SEARCH_SNIPPET_CONTEXT_BEFORE)
+        end = start + SEARCH_SNIPPET_MAX_LENGTH
+        match_end_in_content = idx + len(query_lower)
+        prefix = "…" if start > 0 else ""
+        suffix = "…" if end < len(content) else ""
+        before = prefix + content[start:idx]
+        # Slice the matched text out of the original content (preserves the
+        # caller's case) instead of echoing query_lower.
+        match_text = content[idx:match_end_in_content]
+        after = content[match_end_in_content:end] + suffix
+        return before, match_text, after
 
     async def create_chat(self, user: User, chat_data: ChatCreate) -> Chat:
         async with self.session_factory() as db:

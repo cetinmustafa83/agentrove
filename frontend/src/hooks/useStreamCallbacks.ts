@@ -583,6 +583,11 @@ export function useStreamCallbacks({
         }
       }
 
+      // Invalidate the chat-search cache regardless of whether the completed
+      // stream belongs to the on-screen chat — otherwise off-screen completions
+      // (background turns) leave search results stale for up to staleTime.
+      queryClient.invalidateQueries({ queryKey: queryKeys.chatsSearchAll });
+
       if (!isCurrentChat) return;
 
       setPendingUserMessageId(null);

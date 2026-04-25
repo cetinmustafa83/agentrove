@@ -2,6 +2,8 @@ import type { DiffMode } from '@/types/sandbox.types';
 
 export const queryKeys = {
   chats: 'chats',
+  chatsSearch: (query: string) => ['chats', 'search', query] as const,
+  chatsSearchAll: ['chats', 'search'] as const,
   chat: (chatId?: string) => ['chat', chatId] as const,
   messages: (chatId?: string) => ['messages', chatId] as const,
   contextUsage: (chatId?: string) => ['chat', chatId, 'context-usage'] as const,
