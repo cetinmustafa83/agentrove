@@ -2,42 +2,17 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.db_models.user import User
-from app.models.db_models.workspace import Workspace
 from app.services.sandbox_providers.base import SandboxProvider
 
 from tests.conftest import LoginClient, UserFactory
-from tests.helpers import FakeProviderFactory, FakeSandboxProvider
+from tests.helpers import (
+    FakeProviderFactory,
+    FakeSandboxProvider,
+    create_authenticated_workspace,
+)
 
 
 pytestmark = pytest.mark.anyio
-
-
-async def create_authenticated_workspace(
-    db_session: AsyncSession,
-    create_user: UserFactory,
-    login: LoginClient,
-    *,
-    email: str = "sandbox@example.com",
-    username: str = "sandboxuser",
-    sandbox_id: str = "sandbox-test",
-) -> tuple[dict[str, str], User, Workspace]:
-    user = await create_user(email=email, username=username)
-    tokens = await login(email=email)
-    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
-    workspace = Workspace(
-        name="Sandbox Workspace",
-        user_id=user.id,
-        sandbox_id=sandbox_id,
-        sandbox_provider="host",
-        workspace_path=f"/tmp/agentrove-test-{username}",
-        source_type="empty",
-        source_url=None,
-    )
-    db_session.add(workspace)
-    await db_session.commit()
-    await db_session.refresh(workspace)
-    return headers, user, workspace
 
 
 @pytest.fixture
@@ -125,7 +100,6 @@ async def test_sandbox_access_requires_owner_and_authentication(
         login,
         email="sandbox-other@example.com",
         username="sandboxother",
-        sandbox_id="sandbox-other",
     )
 
     owner_response = await client.get(
