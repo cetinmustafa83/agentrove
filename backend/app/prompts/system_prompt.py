@@ -34,10 +34,8 @@ def build_system_prompt_for_chat(
     selected_persona_name: str = DEFAULT_PERSONA_NAME,
 ) -> str:
     persona_content = ""
-    # Only apply the persona for agents whose CLI honors a replaced system
-    # prompt; for others (cursor, copilot, opencode) the persona would be
-    # silently dropped, so skip it here and keep the prompt suggestions
-    # instructions unchanged.
+    # Only apply the persona for agents whose adapter can replace the base
+    # prompt; others silently drop replacement instructions over ACP.
     if (
         agent_kind in PERSONAS_SUPPORTED_AGENTS
         and selected_persona_name != DEFAULT_PERSONA_NAME
