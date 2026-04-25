@@ -101,6 +101,10 @@ exclude = [
 "sse-starlette" = "sse_starlette"
 
 [tool.deptry.per_rule_ignores]
+DEP001 = [
+    "pytest",
+    "pytest_asyncio",
+]
 DEP002 = [
     "aiosqlite",
     "python-multipart",
