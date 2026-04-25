@@ -64,3 +64,33 @@ jobs:
       - name: Run pip-audit vulnerability scan
         continue-on-error: true
         run: pip-audit -r backend/requirements.lock
+
+  tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-backend-tests-${{ hashFiles('backend/requirements.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-backend-tests-
+            ${{ runner.os }}-pip-
+
+      - name: Install test dependencies
+        run: |
+          pip install -r backend/requirements.txt pytest pytest-asyncio
+
+      - name: Run backend tests
+        run: |
+          cd backend
+          pytest tests/test_auth.py
