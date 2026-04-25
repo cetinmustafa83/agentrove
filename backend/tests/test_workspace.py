@@ -6,106 +6,17 @@ import pytest
 from httpx import AsyncClient
 
 from app.services.sandbox_providers.base import SandboxProvider
-from app.services.sandbox_providers.types import (
-    CommandResult,
-    FileContent,
-    FileMetadata,
-    PtyDataCallbackType,
-    PtySession,
-    PtySize,
-)
 
 from tests.conftest import LoginClient, UserFactory
+from tests.helpers import FakeProviderFactory
 
 
 pytestmark = pytest.mark.anyio
 
 
-class FakeSandboxProvider(SandboxProvider):
-    def __init__(self, workspace_path: str | None = None) -> None:
-        self._workspace_root = workspace_path or "/tmp/agentrove-test-workspace"
-
-    @property
-    def workspace_root(self) -> str:
-        return self._workspace_root
-
-    async def create_sandbox(self, workspace_path: str | None = None) -> str:
-        return "sandbox-1"
-
-    async def delete_sandbox(self, sandbox_id: str) -> None:
-        return None
-
-    async def execute_command(
-        self,
-        sandbox_id: str,
-        command: str,
-        envs: dict[str, str] | None = None,
-        timeout: int = 120,
-    ) -> CommandResult:
-        return CommandResult(stdout="", stderr="", exit_code=0)
-
-    async def write_file(
-        self,
-        sandbox_id: str,
-        path: str,
-        content: str | bytes,
-    ) -> None:
-        return None
-
-    async def read_file(
-        self,
-        sandbox_id: str,
-        path: str,
-    ) -> FileContent:
-        return FileContent(path=path, content="", type="file", is_binary=False)
-
-    async def list_files(
-        self,
-        sandbox_id: str,
-        path: str = "",
-    ) -> list[FileMetadata]:
-        return []
-
-    async def create_pty(
-        self,
-        sandbox_id: str,
-        rows: int,
-        cols: int,
-        tmux_session: str,
-        on_data: PtyDataCallbackType | None = None,
-    ) -> PtySession:
-        return PtySession(id="pty-1", pid=None, rows=rows, cols=cols)
-
-    async def send_pty_input(
-        self,
-        sandbox_id: str,
-        pty_id: str,
-        data: bytes,
-    ) -> None:
-        return None
-
-    async def resize_pty(
-        self,
-        sandbox_id: str,
-        pty_id: str,
-        size: PtySize,
-    ) -> None:
-        return None
-
-    async def kill_pty(self, sandbox_id: str, pty_id: str) -> None:
-        return None
-
-
-def _fake_create_provider(
-    provider_type: str,
-    workspace_path: str | None = None,
-) -> FakeSandboxProvider:
-    return FakeSandboxProvider(workspace_path=workspace_path)
-
-
 @pytest.fixture
 def workspace_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(SandboxProvider, "create_provider", _fake_create_provider)
+    monkeypatch.setattr(SandboxProvider, "create_provider", FakeProviderFactory())
 
 
 async def create_authenticated_workspace(
