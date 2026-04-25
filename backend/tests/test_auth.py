@@ -1,11 +1,10 @@
-from typing import Any
-
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.db_models.user import User
 
+from tests.conftest import EmailCapture, LoginClient, SettingsOverride, UserFactory
 from tests.helpers import count_refresh_tokens, get_user_by_email, get_user_settings
 
 
@@ -15,7 +14,7 @@ pytestmark = pytest.mark.anyio
 async def test_register_creates_user_and_settings(
     client: AsyncClient,
     db_session: AsyncSession,
-    email_capture: Any,
+    email_capture: EmailCapture,
 ) -> None:
     response = await client.post(
         "/api/v1/auth/register",
@@ -39,8 +38,8 @@ async def test_register_creates_user_and_settings(
 
 async def test_register_rejects_duplicate_email(
     client: AsyncClient,
-    create_user: Any,
-    email_capture: Any,
+    create_user: UserFactory,
+    email_capture: EmailCapture,
 ) -> None:
     await create_user(email="taken@example.com", username="existing")
 
@@ -59,8 +58,8 @@ async def test_register_rejects_duplicate_email(
 
 async def test_register_rejects_duplicate_username(
     client: AsyncClient,
-    create_user: Any,
-    email_capture: Any,
+    create_user: UserFactory,
+    email_capture: EmailCapture,
 ) -> None:
     await create_user(email="first@example.com", username="takenname")
 
@@ -79,7 +78,7 @@ async def test_register_rejects_duplicate_username(
 
 async def test_register_rejects_invalid_username(
     client: AsyncClient,
-    email_capture: Any,
+    email_capture: EmailCapture,
 ) -> None:
     response = await client.post(
         "/api/v1/auth/register",
@@ -95,8 +94,8 @@ async def test_register_rejects_invalid_username(
 
 async def test_register_rejects_disabled_registration(
     client: AsyncClient,
-    settings_override: Any,
-    email_capture: Any,
+    settings_override: SettingsOverride,
+    email_capture: EmailCapture,
 ) -> None:
     settings_override(REGISTRATION_DISABLED=True)
 
@@ -115,8 +114,8 @@ async def test_register_rejects_disabled_registration(
 
 async def test_register_rejects_disposable_email(
     client: AsyncClient,
-    settings_override: Any,
-    email_capture: Any,
+    settings_override: SettingsOverride,
+    email_capture: EmailCapture,
 ) -> None:
     settings_override(BLOCK_DISPOSABLE_EMAILS=True)
     email_capture.disposable = True
@@ -138,7 +137,7 @@ async def test_register_rejects_disposable_email(
 
 async def test_login_returns_access_and_refresh_tokens(
     client: AsyncClient,
-    create_user: Any,
+    create_user: UserFactory,
     db_session: AsyncSession,
 ) -> None:
     user = await create_user(email="login@example.com", username="loginuser")
@@ -159,7 +158,7 @@ async def test_login_returns_access_and_refresh_tokens(
 
 async def test_login_rejects_wrong_password(
     client: AsyncClient,
-    create_user: Any,
+    create_user: UserFactory,
 ) -> None:
     await create_user(email="login@example.com", username="loginuser")
 
@@ -174,7 +173,7 @@ async def test_login_rejects_wrong_password(
 
 async def test_login_rejects_inactive_user(
     client: AsyncClient,
-    create_user: Any,
+    create_user: UserFactory,
 ) -> None:
     await create_user(
         email="inactive@example.com",
@@ -193,8 +192,8 @@ async def test_login_rejects_inactive_user(
 
 async def test_login_rejects_unverified_user_when_verification_required(
     client: AsyncClient,
-    create_user: Any,
-    settings_override: Any,
+    create_user: UserFactory,
+    settings_override: SettingsOverride,
 ) -> None:
     settings_override(REQUIRE_EMAIL_VERIFICATION=True)
     await create_user(
@@ -214,8 +213,8 @@ async def test_login_rejects_unverified_user_when_verification_required(
 
 async def test_me_returns_current_user(
     client: AsyncClient,
-    create_user: Any,
-    login: Any,
+    create_user: UserFactory,
+    login: LoginClient,
 ) -> None:
     await create_user(email="me@example.com", username="meuser")
     tokens = await login(email="me@example.com")
@@ -240,8 +239,8 @@ async def test_me_rejects_missing_token(client: AsyncClient) -> None:
 
 async def test_refresh_rotates_refresh_token(
     client: AsyncClient,
-    create_user: Any,
-    login: Any,
+    create_user: UserFactory,
+    login: LoginClient,
 ) -> None:
     await create_user(email="refresh@example.com", username="refreshuser")
     tokens = await login(email="refresh@example.com")
@@ -261,8 +260,8 @@ async def test_refresh_rotates_refresh_token(
 
 async def test_refresh_rejects_rotated_token(
     client: AsyncClient,
-    create_user: Any,
-    login: Any,
+    create_user: UserFactory,
+    login: LoginClient,
 ) -> None:
     await create_user(email="refresh@example.com", username="refreshuser")
     tokens = await login(email="refresh@example.com")
@@ -292,8 +291,8 @@ async def test_refresh_rejects_invalid_token(client: AsyncClient) -> None:
 
 async def test_logout_revokes_refresh_token(
     client: AsyncClient,
-    create_user: Any,
-    login: Any,
+    create_user: UserFactory,
+    login: LoginClient,
 ) -> None:
     await create_user(email="logout@example.com", username="logoutuser")
     tokens = await login(email="logout@example.com")
@@ -313,8 +312,8 @@ async def test_logout_revokes_refresh_token(
 
 async def test_forgot_password_sends_reset_email(
     client: AsyncClient,
-    create_user: Any,
-    email_capture: Any,
+    create_user: UserFactory,
+    email_capture: EmailCapture,
 ) -> None:
     await create_user(email="reset@example.com", username="resetuser")
 
@@ -331,8 +330,8 @@ async def test_forgot_password_sends_reset_email(
 
 async def test_reset_password_accepts_valid_token(
     client: AsyncClient,
-    create_user: Any,
-    email_capture: Any,
+    create_user: UserFactory,
+    email_capture: EmailCapture,
 ) -> None:
     await create_user(email="reset@example.com", username="resetuser")
     await client.post(
@@ -365,8 +364,8 @@ async def test_reset_password_rejects_invalid_token(client: AsyncClient) -> None
 
 async def test_request_verify_token_sends_verification_email(
     client: AsyncClient,
-    create_user: Any,
-    email_capture: Any,
+    create_user: UserFactory,
+    email_capture: EmailCapture,
 ) -> None:
     await create_user(
         email="verify@example.com",
@@ -387,9 +386,9 @@ async def test_request_verify_token_sends_verification_email(
 
 async def test_verify_accepts_valid_token(
     client: AsyncClient,
-    create_user: Any,
+    create_user: UserFactory,
     db_session: AsyncSession,
-    email_capture: Any,
+    email_capture: EmailCapture,
 ) -> None:
     user: User = await create_user(
         email="verify@example.com",
