@@ -65,11 +65,11 @@ OPENCODE_SESSION_MODES = frozenset({"build", "plan"})
 
 # Agents that can have their base system prompt replaced by a persona.
 # Claude/Codex expose a first-class mechanism (ACP _meta.systemPrompt for
-# Claude; model_instructions_file CLI flag for Codex). Cursor, Copilot, and
-# OpenCode CLIs silently ignore any system prompt we send over ACP, so
-# personas would have no effect there — we hide the selector instead.
+# Claude; model_instructions_file CLI flag for Codex). OpenCode uses a custom
+# primary agent injected through OPENCODE_CONFIG_CONTENT. Cursor and Copilot
+# ignore system prompt replacement over ACP, so personas would have no effect.
 PERSONAS_SUPPORTED_AGENTS: frozenset[AgentKind] = frozenset(
-    {AgentKind.CLAUDE, AgentKind.CODEX}
+    {AgentKind.CLAUDE, AgentKind.CODEX, AgentKind.OPENCODE}
 )
 
 
@@ -451,9 +451,43 @@ class OpencodeAgentAdapter(AgentAdapter):
         thinking_mode: str | None,
         permission_mode: str,
     ) -> SessionConfig:
-        meta = build_system_prompt_meta(system_prompt, system_prompt_is_full_replace)
+        if system_prompt and system_prompt_is_full_replace:
+            # OpenCode ignores ACP _meta.systemPrompt, so inject the persona as
+            # a custom primary agent via OPENCODE_CONFIG_CONTENT and select it
+            # as the session mode.
+            mode = self.map_session_mode(permission_mode)
+            agent_name = f"agentrove-persona-{mode}"
+            permission: dict[str, Any] = (
+                {"question": "allow", "plan_enter": "allow"}
+                if mode == "build"
+                else {
+                    "question": "allow",
+                    "plan_exit": "allow",
+                    "edit": {
+                        "*": "deny",
+                        ".opencode/plans/*.md": "allow",
+                    },
+                }
+            )
+            config_content = json.dumps(
+                {
+                    "agent": {
+                        agent_name: {
+                            "description": "Agentrove persona",
+                            "mode": "primary",
+                            "prompt": system_prompt,
+                            "permission": permission,
+                        }
+                    },
+                    "default_agent": agent_name,
+                }
+            )
+            return SessionConfig(
+                env_overrides={"OPENCODE_CONFIG_CONTENT": config_content},
+                permission=PermissionConfig(session_mode=agent_name),
+            )
+
         return SessionConfig(
-            meta=meta,
             permission=PermissionConfig(
                 session_mode=self.map_session_mode(permission_mode)
             ),

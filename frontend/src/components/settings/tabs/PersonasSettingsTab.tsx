@@ -18,7 +18,7 @@ export const PersonasSettingsTab: React.FC<PersonasSettingsTabProps> = ({
   return (
     <ListManagementTab<Persona>
       title="Personas"
-      description="Create personas with custom system prompts. Select from the persona dropdown in the input bar. Only Claude and Codex support replacing the system prompt; the persona selector is hidden for Cursor, Copilot, and OpenCode."
+      description="Create personas with custom system prompts. Select from the persona dropdown in the input bar. Claude, Codex, and OpenCode support replacing the system prompt; the persona selector is hidden for Cursor and Copilot."
       items={personas}
       emptyIcon={UserCircle}
       emptyText="No personas configured yet"
