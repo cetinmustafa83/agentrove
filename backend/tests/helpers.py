@@ -1,4 +1,6 @@
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -8,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.db_models.refresh_token import RefreshToken
 from app.models.db_models.user import User, UserSettings
 from app.models.db_models.workspace import Workspace
+from app.utils.cache import CacheStore, MemoryStore
 from app.services.sandbox_providers.base import SandboxProvider
 from app.services.sandbox_providers.types import (
     CommandResult,
@@ -187,6 +190,15 @@ class FakeProviderFactory:
         if self.provider is not None:
             return self.provider
         return FakeSandboxProvider(workspace_path=workspace_path)
+
+
+class EndpointCache:
+    def __init__(self) -> None:
+        self.store = MemoryStore()
+
+    @asynccontextmanager
+    async def connect(self) -> AsyncIterator[CacheStore]:
+        yield self.store
 
 
 async def create_authenticated_workspace(

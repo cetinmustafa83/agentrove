@@ -1,30 +1,18 @@
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-
 import pytest
 from httpx import AsyncClient
 
 from app.api.endpoints import settings as settings_endpoint
-from app.utils.cache import CacheStore, MemoryStore
 
 from tests.conftest import LoginClient, UserFactory
+from tests.helpers import EndpointCache
 
 
 pytestmark = pytest.mark.anyio
 
 
-class SettingsCache:
-    def __init__(self) -> None:
-        self.store = MemoryStore()
-
-    @asynccontextmanager
-    async def connect(self) -> AsyncIterator[CacheStore]:
-        yield self.store
-
-
 @pytest.fixture
-def settings_cache(monkeypatch: pytest.MonkeyPatch) -> SettingsCache:
-    cache = SettingsCache()
+def settings_cache(monkeypatch: pytest.MonkeyPatch) -> EndpointCache:
+    cache = EndpointCache()
     monkeypatch.setattr(settings_endpoint, "cache_connection", cache.connect)
     return cache
 
@@ -33,7 +21,7 @@ async def test_get_settings_returns_current_user_settings(
     client: AsyncClient,
     create_user: UserFactory,
     login: LoginClient,
-    settings_cache: SettingsCache,
+    settings_cache: EndpointCache,
 ) -> None:
     user = await create_user(email="settings@example.com", username="settingsuser")
     tokens = await login(email="settings@example.com")
@@ -57,7 +45,7 @@ async def test_patch_settings_updates_persistence_and_invalidates_cache(
     client: AsyncClient,
     create_user: UserFactory,
     login: LoginClient,
-    settings_cache: SettingsCache,
+    settings_cache: EndpointCache,
 ) -> None:
     await create_user(email="update-settings@example.com", username="updatesettings")
     tokens = await login(email="update-settings@example.com")
@@ -96,7 +84,7 @@ async def test_patch_settings_normalizes_string_json_lists(
     client: AsyncClient,
     create_user: UserFactory,
     login: LoginClient,
-    settings_cache: SettingsCache,
+    settings_cache: EndpointCache,
 ) -> None:
     await create_user(email="normalize-settings@example.com", username="normalize")
     tokens = await login(email="normalize-settings@example.com")
