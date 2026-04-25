@@ -291,6 +291,35 @@ async def test_git_endpoints_propagate_cwd_and_request_fields(
     assert any("git remote get-url origin" in command for command in commands)
 
 
+async def test_git_remote_url_returns_owned_sandbox_remote(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_user: UserFactory,
+    login: LoginClient,
+    fake_provider: FakeSandboxProvider,
+) -> None:
+    headers, _user, workspace = await create_authenticated_workspace(
+        db_session, create_user, login
+    )
+
+    response = await client.get(
+        f"/api/v1/sandbox/{workspace.sandbox_id}/git/remote-url",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "remote_url": "https://github.com/agentrove/app.git",
+        "owner": "agentrove",
+        "repo": "app",
+    }
+    assert fake_provider.commands[-1] == (
+        workspace.sandbox_id,
+        "git remote get-url origin 2>/dev/null",
+        {},
+    )
+
+
 async def test_search_endpoint_propagates_filters(
     client: AsyncClient,
     db_session: AsyncSession,

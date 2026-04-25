@@ -105,6 +105,38 @@ async def test_list_get_and_update_workspace(
     assert update_response.json()["name"] == "Renamed Workspace"
 
 
+async def test_workspace_resources_returns_owner_resources(
+    client: AsyncClient,
+    create_user: UserFactory,
+    login: LoginClient,
+    workspace_sandbox: None,
+) -> None:
+    owner_headers, workspace = await create_authenticated_workspace(
+        client,
+        create_user,
+        login,
+        email="resources-owner@example.com",
+        username="resourcesowner",
+    )
+    await create_user(email="resources-other@example.com", username="resourcesother")
+    other_tokens = await login(email="resources-other@example.com")
+    other_headers = {"Authorization": f"Bearer {other_tokens['access_token']}"}
+    workspace_id = workspace["id"]
+
+    owner_response = await client.get(
+        f"/api/v1/workspaces/{workspace_id}/resources", headers=owner_headers
+    )
+    other_response = await client.get(
+        f"/api/v1/workspaces/{workspace_id}/resources", headers=other_headers
+    )
+
+    assert owner_response.status_code == 200
+    body = owner_response.json()
+    assert isinstance(body["skills"], list)
+    assert set(body["builtin_slash_commands"]) >= {"claude", "codex"}
+    assert other_response.status_code == 404
+
+
 async def test_workspace_access_is_limited_to_owner(
     client: AsyncClient,
     create_user: UserFactory,

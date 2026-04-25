@@ -8,18 +8,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.endpoints import chat as chat_endpoint
 from app.constants import MODELS, REDIS_KEY_CHAT_CONTEXT_USAGE
-from app.core.deps import get_queue_service
+from app.core.deps import get_agent_service, get_chat_service, get_queue_service
 from app.models.db_models.chat import Chat, Message, MessageEvent
 from app.models.db_models.enums import MessageRole, MessageStreamStatus
 from app.models.db_models.user import User
 from app.models.db_models.workspace import Workspace
+from app.models.schemas.chat import ChatRequest
 from app.services.db import SessionFactoryType
+from app.services.exceptions import AgentException, ChatException
 from app.services.queue import QueueService
+from app.services.sandbox_providers.base import SandboxProvider
 from app.services.streaming.runtime import ChatStreamRuntime
 from app.utils.cache import MemoryStore
 
 from tests.conftest import LoginClient, UserFactory
-from tests.helpers import EndpointCache, create_authenticated_workspace
+from tests.helpers import (
+    EndpointCache,
+    FakeProviderFactory,
+    create_authenticated_workspace,
+)
 
 
 TEST_MODEL_ID = "opencode:google-vertex-anthropic/claude-sonnet-4-5@20250929"
@@ -59,6 +66,44 @@ class PermissionResolver:
     ) -> bool:
         self.calls.append((chat_id, request_id, option_id))
         return request_id == "request-1"
+
+
+class ChatCompletionServiceOverride:
+    def __init__(self) -> None:
+        self.requests: list[ChatRequest] = []
+        self.users: list[User] = []
+        self.fail = False
+
+    async def __call__(self) -> AsyncIterator["ChatCompletionServiceOverride"]:
+        yield self
+
+    async def initiate_chat_completion(
+        self, request: ChatRequest, user: User
+    ) -> dict[str, UUID | int]:
+        self.requests.append(request)
+        self.users.append(user)
+        if self.fail:
+            raise ChatException("Cannot start chat")
+        return {
+            "chat_id": request.chat_id,
+            "message_id": UUID("00000000-0000-0000-0000-000000000123"),
+            "last_seq": 4,
+        }
+
+
+class AgentServiceOverride:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, User]] = []
+        self.fail = False
+
+    def __call__(self) -> "AgentServiceOverride":
+        return self
+
+    async def enhance_prompt(self, prompt: str, model_id: str, user: User) -> str:
+        self.calls.append((prompt, model_id, user))
+        if self.fail:
+            raise AgentException("Enhance failed", status_code=503)
+        return "Enhanced: " + prompt
 
 
 @pytest.fixture
@@ -177,6 +222,122 @@ async def test_create_list_and_get_chat(
     assert detail_response.json()["id"] == created["id"]
 
 
+async def test_send_message_endpoint_passes_form_fields_to_chat_service(
+    app: FastAPI,
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_user: UserFactory,
+    login: LoginClient,
+) -> None:
+    chat_service = ChatCompletionServiceOverride()
+    app.dependency_overrides[get_chat_service] = chat_service
+    headers, user, workspace = await create_authenticated_workspace(
+        db_session, create_user, login
+    )
+    chat = await create_chat_row(db_session, user, workspace)
+
+    response = await client.post(
+        "/api/v1/chat/chat",
+        data={
+            "prompt": "Ship this",
+            "chat_id": str(chat.id),
+            "model_id": TEST_MODEL_ID,
+            "permission_mode": "default",
+            "thinking_mode": "high",
+            "worktree": "true",
+            "plan_mode": "true",
+            "selected_persona_name": "Builder",
+        },
+        files={"attached_files": ("note.txt", b"hello", "text/plain")},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "chat_id": str(chat.id),
+        "message_id": "00000000-0000-0000-0000-000000000123",
+        "last_seq": 4,
+    }
+    request = chat_service.requests[0]
+    assert request.prompt == "Ship this"
+    assert request.chat_id == chat.id
+    assert request.model_id == TEST_MODEL_ID
+    assert request.permission_mode == "default"
+    assert request.thinking_mode == "high"
+    assert request.worktree is True
+    assert request.plan_mode is True
+    assert request.selected_persona_name == "Builder"
+    assert request.attached_files is not None
+    assert request.attached_files[0].filename == "note.txt"
+    assert [stored_user.id for stored_user in chat_service.users] == [user.id]
+
+
+async def test_send_message_endpoint_translates_chat_errors(
+    app: FastAPI,
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_user: UserFactory,
+    login: LoginClient,
+) -> None:
+    chat_service = ChatCompletionServiceOverride()
+    chat_service.fail = True
+    app.dependency_overrides[get_chat_service] = chat_service
+    headers, user, workspace = await create_authenticated_workspace(
+        db_session, create_user, login
+    )
+    chat = await create_chat_row(db_session, user, workspace)
+
+    response = await client.post(
+        "/api/v1/chat/chat",
+        data={
+            "prompt": "Fail this",
+            "chat_id": str(chat.id),
+            "model_id": TEST_MODEL_ID,
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Cannot start chat"
+
+
+async def test_enhance_prompt_endpoint_uses_agent_service(
+    app: FastAPI,
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_user: UserFactory,
+    login: LoginClient,
+) -> None:
+    agent_service = AgentServiceOverride()
+    app.dependency_overrides[get_agent_service] = agent_service
+    headers, user, _workspace = await create_authenticated_workspace(
+        db_session, create_user, login
+    )
+
+    response = await client.post(
+        "/api/v1/chat/enhance-prompt",
+        data={"prompt": "make it concise", "model_id": TEST_MODEL_ID},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"enhanced_prompt": "Enhanced: make it concise"}
+    assert [
+        (prompt, model_id, stored_user.id)
+        for prompt, model_id, stored_user in agent_service.calls
+    ] == [("make it concise", TEST_MODEL_ID, user.id)]
+
+    agent_service.fail = True
+    failure_response = await client.post(
+        "/api/v1/chat/enhance-prompt",
+        data={"prompt": "make it fail", "model_id": TEST_MODEL_ID},
+        headers=headers,
+    )
+
+    assert failure_response.status_code == 503
+    assert failure_response.json()["detail"] == "Enhance failed"
+
+
 async def test_chat_access_is_limited_to_owner(
     client: AsyncClient,
     db_session: AsyncSession,
@@ -265,6 +426,47 @@ async def test_delete_chat_excludes_it_from_list_and_detail(
     assert list_response.status_code == 200
     assert [item["id"] for item in list_response.json()["items"]] == [str(remaining.id)]
     assert detail_response.status_code == 404
+
+
+async def test_delete_all_chats_only_deletes_current_user_chats(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_user: UserFactory,
+    login: LoginClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(SandboxProvider, "create_provider", FakeProviderFactory())
+    owner_headers, owner, owner_workspace = await create_authenticated_workspace(
+        db_session,
+        create_user,
+        login,
+        email="delete-all-owner@example.com",
+        username="deleteallowner",
+    )
+    owner_chat = await create_chat_row(db_session, owner, owner_workspace)
+    await create_message_row(db_session, owner_chat, content="Remove me")
+    other_headers, other_user, other_workspace = await create_authenticated_workspace(
+        db_session,
+        create_user,
+        login,
+        email="delete-all-other@example.com",
+        username="deleteallother",
+    )
+    other_chat = await create_chat_row(db_session, other_user, other_workspace)
+
+    response = await client.delete("/api/v1/chat/chats/all", headers=owner_headers)
+    owner_list = await client.get("/api/v1/chat/chats", headers=owner_headers)
+    owner_detail = await client.get(
+        f"/api/v1/chat/chats/{owner_chat.id}", headers=owner_headers
+    )
+    other_list = await client.get("/api/v1/chat/chats", headers=other_headers)
+
+    assert response.status_code == 204
+    assert owner_list.status_code == 200
+    assert owner_list.json()["items"] == []
+    assert owner_detail.status_code == 404
+    assert other_list.status_code == 200
+    assert [item["id"] for item in other_list.json()["items"]] == [str(other_chat.id)]
 
 
 async def test_sub_threads_are_listed_and_nested_sub_threads_are_rejected(
