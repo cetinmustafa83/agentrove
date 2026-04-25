@@ -1,4 +1,4 @@
-from typing import Any
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,14 +12,14 @@ async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     return result.scalar_one_or_none()
 
 
-async def get_user_settings(db: AsyncSession, user_id: Any) -> UserSettings | None:
+async def get_user_settings(db: AsyncSession, user_id: UUID) -> UserSettings | None:
     result = await db.execute(
         select(UserSettings).where(UserSettings.user_id == user_id)
     )
     return result.scalar_one_or_none()
 
 
-async def count_refresh_tokens(db: AsyncSession, user_id: Any) -> int:
+async def count_refresh_tokens(db: AsyncSession, user_id: UUID) -> int:
     result = await db.execute(
         select(RefreshToken).where(RefreshToken.user_id == user_id)
     )
