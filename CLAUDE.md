@@ -40,6 +40,16 @@
 
 - Don't run tests, lints, type checks, or similar verification commands unless explicitly asked
 
+## Testing
+
+- Backend tests are endpoint/API tests only — don't add standalone service tests
+- Place backend tests directly under `backend/tests/` (e.g., `tests/test_auth.py`), not nested by endpoint folder
+- Test through HTTP/WebSocket routes so the real route handlers, dependencies, and services run together
+- Use a real isolated test database for backend endpoint tests when persistence matters
+- Stub only external boundaries: email delivery, third-party APIs, ACP/provider processes, Docker/host sandbox execution, Redis/cache when needed
+- Provider coverage should exercise endpoint flows with fake ACP/provider boundaries; don't call real Claude, Codex, OpenCode, Cursor, or Copilot in default tests
+- CI's backend test job should stay generic (`Backend Tests`) and expand its pytest command as more test files are added
+
 ## Code Style
 
 ### Comments
