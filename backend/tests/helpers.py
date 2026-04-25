@@ -1,4 +1,5 @@
 import json
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import select
@@ -6,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.db_models.refresh_token import RefreshToken
 from app.models.db_models.user import User, UserSettings
+from app.models.db_models.workspace import Workspace
 from app.services.sandbox_providers.base import SandboxProvider
 from app.services.sandbox_providers.types import (
     CommandResult,
@@ -15,6 +17,9 @@ from app.services.sandbox_providers.types import (
     PtySession,
     PtySize,
 )
+
+if TYPE_CHECKING:
+    from tests.conftest import LoginClient, UserFactory
 
 
 class FakeSandboxProvider(SandboxProvider):
@@ -182,6 +187,32 @@ class FakeProviderFactory:
         if self.provider is not None:
             return self.provider
         return FakeSandboxProvider(workspace_path=workspace_path)
+
+
+async def create_authenticated_workspace(
+    db_session: AsyncSession,
+    create_user: "UserFactory",
+    login: "LoginClient",
+    *,
+    email: str = "user@example.com",
+    username: str = "testuser",
+) -> tuple[dict[str, str], User, Workspace]:
+    user = await create_user(email=email, username=username)
+    tokens = await login(email=email)
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    workspace = Workspace(
+        name="Test Workspace",
+        user_id=user.id,
+        sandbox_id=f"sandbox-{username}",
+        sandbox_provider="host",
+        workspace_path=f"/tmp/agentrove-test-{username}",
+        source_type="empty",
+        source_url=None,
+    )
+    db_session.add(workspace)
+    await db_session.commit()
+    await db_session.refresh(workspace)
+    return headers, user, workspace
 
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:

@@ -17,6 +17,7 @@ from app.services.streaming.runtime import ChatStreamRuntime
 from app.utils.cache import MemoryStore
 
 from tests.conftest import LoginClient, UserFactory
+from tests.helpers import create_authenticated_workspace
 
 
 TEST_MODEL_ID = "opencode:google-vertex-anthropic/claude-sonnet-4-5@20250929"
@@ -41,33 +42,6 @@ class SendNowCapture:
     ) -> bool:
         self.chat_ids.append(chat_id)
         return True
-
-
-async def create_authenticated_workspace(
-    db_session: AsyncSession,
-    create_user: UserFactory,
-    login: LoginClient,
-    *,
-    email: str = "chat@example.com",
-    username: str = "chatuser",
-    workspace_name: str = "Chat Workspace",
-) -> tuple[dict[str, str], User, Workspace]:
-    user = await create_user(email=email, username=username)
-    tokens = await login(email=email)
-    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
-    workspace = Workspace(
-        name=workspace_name,
-        user_id=user.id,
-        sandbox_id=f"sandbox-{username}",
-        sandbox_provider="host",
-        workspace_path=f"/tmp/agentrove-test-{username}",
-        source_type="empty",
-        source_url=None,
-    )
-    db_session.add(workspace)
-    await db_session.commit()
-    await db_session.refresh(workspace)
-    return headers, user, workspace
 
 
 async def create_chat_row(
