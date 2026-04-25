@@ -1,3 +1,6 @@
+import io
+import zipfile
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -118,6 +121,34 @@ async def test_sandbox_access_requires_owner_and_authentication(
     assert other_response.status_code == 404
     assert other_response.json()["detail"] == "Sandbox not found"
     assert missing_token_response.status_code == 401
+
+
+async def test_download_zip_returns_owned_sandbox_files(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_user: UserFactory,
+    login: LoginClient,
+    fake_provider: FakeSandboxProvider,
+) -> None:
+    headers, _user, workspace = await create_authenticated_workspace(
+        db_session, create_user, login
+    )
+    await fake_provider.write_file(workspace.sandbox_id, "src/app.py", "print('zip')")
+
+    response = await client.get(
+        f"/api/v1/sandbox/{workspace.sandbox_id}/download-zip",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert response.headers["content-disposition"] == (
+        f'attachment; filename="sandbox_{workspace.sandbox_id}.zip"'
+    )
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert archive.namelist() == ["README.md", "src/app.py"]
+        assert archive.read("README.md") == b"Initial readme"
+        assert archive.read("src/app.py") == b"print('zip')"
 
 
 async def test_secret_endpoints_update_user_settings(
