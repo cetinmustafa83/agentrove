@@ -30,8 +30,7 @@ class EmailCapture:
         return self.disposable
 
     async def send_verification_email(
-        self,
-        email: str, verification_token: str, user_name: str | None = None
+        self, email: str, verification_token: str, user_name: str | None = None
     ) -> bool:
         self.verification.append(
             {"email": email, "token": verification_token, "user_name": user_name}
@@ -39,8 +38,7 @@ class EmailCapture:
         return True
 
     async def send_password_reset_email(
-        self,
-        email: str, reset_token: str, user_name: str | None = None
+        self, email: str, reset_token: str, user_name: str | None = None
     ) -> bool:
         self.password_reset.append(
             {"email": email, "token": reset_token, "user_name": user_name}
