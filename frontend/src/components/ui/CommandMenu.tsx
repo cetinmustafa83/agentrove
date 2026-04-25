@@ -24,6 +24,7 @@ import {
   Sun,
   FileSearch,
   File,
+  MessageSquare,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate, type NavigateFunction } from 'react-router-dom';
@@ -41,6 +42,7 @@ import { getLeaves } from '@/utils/mosaicHelpers';
 import { traverseFileStructure, getFileName } from '@/utils/file';
 import { HighlightMatch } from '@/components/ui/shared/HighlightMatch';
 import { SearchPanel } from '@/components/editor/file-search/SearchPanel';
+import { ChatSearchPanel } from '@/components/chat/chat-search/ChatSearchPanel';
 import { cn } from '@/utils/cn';
 import type { ViewType, MosaicDirection } from '@/types/ui.types';
 import type { FileStructure } from '@/types/file-system.types';
@@ -136,7 +138,7 @@ const SETTING_COMMANDS: ActionCommandItem[] = [
     id: 'theme-dark',
     label: 'Theme: Dark',
     icon: Moon,
-    shortcut: 'k',
+    shortcut: 'm',
   },
   {
     type: 'action',
@@ -161,6 +163,13 @@ const SETTING_COMMANDS: ActionCommandItem[] = [
   },
   {
     type: 'action',
+    id: 'search-in-chats',
+    label: 'Search in chats',
+    icon: MessageSquare,
+    shortcut: 'k',
+  },
+  {
+    type: 'action',
     id: 'go-to-file',
     label: 'Go to file',
     icon: FileSearch,
@@ -177,11 +186,12 @@ export const SHORTCUT_MAP = new Map<string, CommandItem>(
   ]),
 );
 
-type MenuMode = 'commands' | 'files' | 'branches' | 'search';
+type MenuMode = 'commands' | 'files' | 'branches' | 'search' | 'chat-search';
 
 // Commands that switch the menu into a sub-mode instead of dispatching an action.
 const COMMAND_TO_MODE: Partial<Record<string, MenuMode>> = {
   'search-in-files': 'search',
+  'search-in-chats': 'chat-search',
   'go-to-file': 'files',
   'switch-branch': 'branches',
 };
@@ -291,6 +301,9 @@ export function executeCommand(
   } else if (cmd.id === 'search-in-files') {
     pendingMenuMode = 'search';
     ui.setCommandMenuOpen(true);
+  } else if (cmd.id === 'search-in-chats') {
+    pendingMenuMode = 'chat-search';
+    ui.setCommandMenuOpen(true);
   } else if (cmd.id === 'go-to-file') {
     pendingMenuMode = 'files';
     ui.setCommandMenuOpen(true);
@@ -320,6 +333,7 @@ export function CommandMenu() {
   const [mode, setMode] = useState<MenuMode>('commands');
   const inputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const chatSearchInputRef = useRef<HTMLInputElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
   const activeItemRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef({ activeIndex: 0, mode: 'commands' as MenuMode });
@@ -403,6 +417,8 @@ export function CommandMenu() {
     if (next === 'search') {
       // SearchPanel owns its own input; focus it after React flushes the mode change.
       requestAnimationFrame(() => searchInputRef.current?.focus());
+    } else if (next === 'chat-search') {
+      requestAnimationFrame(() => chatSearchInputRef.current?.focus());
     } else {
       requestAnimationFrame(() => inputRef.current?.focus());
     }
@@ -446,6 +462,14 @@ export function CommandMenu() {
       close();
     },
     [close],
+  );
+
+  const handleOpenChatResult = useCallback(
+    (chatId: string) => {
+      navigate(`/chat/${chatId}`);
+      close();
+    },
+    [close, navigate],
   );
 
   const handleSelectBranch = useCallback(
@@ -504,9 +528,9 @@ export function CommandMenu() {
       const { activeIndex: idx, mode: m } = stateRef.current;
       const len = listLengthRef.current;
 
-      if (m === 'search') {
-        // SearchPanel handles its own typing + click-to-open; don't hijack
-        // Enter/arrows here. Only wire Escape to step back to commands.
+      if (m === 'search' || m === 'chat-search') {
+        // The embedded panel handles its own typing + click-to-open; don't
+        // hijack Enter/arrows here. Only wire Escape to step back to commands.
         if (e.key === 'Escape') {
           e.preventDefault();
           e.stopImmediatePropagation();
@@ -576,7 +600,7 @@ export function CommandMenu() {
           'mt-20 h-fit w-full',
           // Widen for search mode so code snippets don't wrap; keep the compact
           // dialog for every other mode.
-          mode === 'search' ? 'max-w-2xl' : 'max-w-md',
+          mode === 'search' || mode === 'chat-search' ? 'max-w-2xl' : 'max-w-md',
           'rounded-xl border border-border/50 shadow-strong dark:border-border-dark/50',
           'bg-surface/95 backdrop-blur-xl dark:bg-surface-dark/95',
           'animate-fade-in',
@@ -606,6 +630,25 @@ export function CommandMenu() {
                 onOpenResult={handleOpenSearchResult}
                 inputRef={searchInputRef}
               />
+            </div>
+          </>
+        ) : mode === 'chat-search' ? (
+          <>
+            <div className="flex items-center gap-2 border-b border-border/50 px-3 py-2 dark:border-border-dark/50">
+              <Button
+                variant="unstyled"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => switchMode('commands')}
+                className="shrink-0 rounded-md bg-surface-hover px-1.5 py-0.5 text-2xs font-medium text-text-secondary dark:bg-surface-dark-hover dark:text-text-dark-secondary"
+              >
+                Search in chats
+              </Button>
+              <span className="text-2xs text-text-quaternary dark:text-text-dark-quaternary">
+                Esc to go back
+              </span>
+            </div>
+            <div className="h-[28rem]">
+              <ChatSearchPanel onOpenChat={handleOpenChatResult} inputRef={chatSearchInputRef} />
             </div>
           </>
         ) : (

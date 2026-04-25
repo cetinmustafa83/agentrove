@@ -309,7 +309,6 @@ export function Sidebar({
   // Tracks which parent chats have their sub-threads expanded — collapsed by default to keep the sidebar compact
   const [expandedSubThreads, toggleSubThreadExpand, setExpandedSubThreads] = useToggleSet<string>();
 
-  const searchInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const workspaceDropdownRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -347,18 +346,6 @@ export function Sidebar({
       return next;
     });
   }, [selectedChatParentId, setExpandedSubThreads]);
-
-  useMountEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  });
 
   useMountEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

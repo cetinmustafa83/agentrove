@@ -10,6 +10,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     Request,
     UploadFile,
     status,
@@ -38,6 +39,7 @@ from app.models.schemas.chat import (
     Chat as ChatSchema,
     ChatCompletionResponse,
     ChatCreate,
+    ChatSearchResponse,
     ChatStatusResponse,
     ChatUpdate,
     ChatRequest,
@@ -175,6 +177,34 @@ async def get_chats(
     return await chat_service.get_user_chats(
         current_user, pagination, workspace_id=workspace_id, pinned=pinned
     )
+
+
+@router.get("/chats/search", response_model=ChatSearchResponse)
+async def search_chats(
+    q: str = Query(..., min_length=2, max_length=200),
+    limit: int = Query(50, ge=1, le=200),
+    per_chat_limit: int = Query(5, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+    chat_service: ChatService = Depends(get_chat_service),
+) -> ChatSearchResponse:
+    # Strip and re-validate so whitespace-only queries (e.g. "  ") don't bypass
+    # min_length and reach the DB as an empty %LIKE% that matches everything.
+    stripped = q.strip()
+    if len(stripped) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Query must contain at least 2 non-whitespace characters",
+        )
+    try:
+        return await chat_service.search_messages(
+            current_user, stripped, limit=limit, per_chat_limit=per_chat_limit
+        )
+    except SQLAlchemyError as e:
+        logger.error("Database error searching chats: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error while searching chats",
+        ) from e
 
 
 @router.get("/chats/{chat_id}/sub-threads", response_model=list[ChatSchema])

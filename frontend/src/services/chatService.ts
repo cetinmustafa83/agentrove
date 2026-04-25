@@ -3,7 +3,13 @@ import { ensureResponse, serviceCall, buildQueryString } from '@/services/base/B
 import { authService } from '@/services/authService';
 import { validateRequired, validateId } from '@/utils/validation';
 import { chatStorage } from '@/utils/storage';
-import type { ChatRequest, Chat, CreateChatRequest, ContextUsage } from '@/types/chat.types';
+import type {
+  ChatRequest,
+  Chat,
+  ChatSearchResponse,
+  CreateChatRequest,
+  ContextUsage,
+} from '@/types/chat.types';
 import type { CursorPaginationParams, PaginatedChats, PaginatedMessages } from '@/types/api.types';
 
 async function createCompletion(
@@ -121,6 +127,14 @@ async function listChats(params?: {
 
     const response = await apiClient.get<PaginatedChats>(endpoint);
     return ensureResponse(response, 'Failed to fetch chats');
+  });
+}
+
+async function searchChats(query: string): Promise<ChatSearchResponse> {
+  return serviceCall(async () => {
+    const queryString = buildQueryString({ q: query });
+    const response = await apiClient.get<ChatSearchResponse>(`/chat/chats/search${queryString}`);
+    return ensureResponse(response, 'Failed to search chats');
   });
 }
 
@@ -273,6 +287,7 @@ export const chatService = {
   stopStream,
   getMessages,
   listChats,
+  searchChats,
   getChat,
   createChat,
   updateChat,
