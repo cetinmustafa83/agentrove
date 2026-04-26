@@ -257,8 +257,9 @@ Agentrove also syncs local Claude and Codex auth/config files into sandboxes whe
 
 ## Deployment
 
-- VPS/Coolify guide: [docs/coolify-installation-guide.md](docs/coolify-installation-guide.md)
 - Production setup serves frontend at `/` and API under `/api/*`
+- Single-host Docker production:
+  `SECRET_KEY=$(openssl rand -hex 32) docker compose -f docker-compose-production.yml up -d --build`
 
 ## Tech Stack
 
