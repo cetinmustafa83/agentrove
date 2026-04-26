@@ -44,6 +44,18 @@ fn ensure_secret_key(data_dir: &std::path::Path) -> String {
 }
 
 fn resolve_backend_binary(app_handle: &tauri::AppHandle) -> std::path::PathBuf {
+    #[cfg(debug_assertions)]
+    {
+        let dev_binary = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("backend-sidecar")
+            .join("agentrove-backend");
+        if dev_binary.exists() {
+            return dev_binary;
+        }
+    }
+
     let resource_dir = app_handle
         .path()
         .resource_dir()
@@ -62,18 +74,9 @@ fn resolve_backend_binary(app_handle: &tauri::AppHandle) -> std::path::PathBuf {
         return direct;
     }
 
-    let dev_binary = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("backend-sidecar")
-        .join("agentrove-backend");
-    if dev_binary.exists() {
-        return dev_binary;
-    }
-
     panic!(
         "Backend binary not found at {:?} or {:?}",
-        binary, dev_binary
+        binary, direct
     );
 }
 
