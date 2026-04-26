@@ -29,7 +29,7 @@ class RefreshToken(Base):
     user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
 
-    user = relationship("User", backref="refresh_tokens")
+    user = relationship("User", back_populates="refresh_tokens")
 
     __table_args__ = (Index("idx_refresh_token_user_revoked", "user_id", "revoked_at"),)
 
