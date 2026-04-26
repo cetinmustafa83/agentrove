@@ -49,8 +49,6 @@ services:
       STORAGE_PATH: /data/agentrove/storage
       DOCKER_IMAGE: ${DOCKER_IMAGE:-ghcr.io/mng-dev-ai/agentrove-sandbox:latest}
       DOCKER_NETWORK: agentrove-sandbox-net
-      DOCKER_PERMISSION_API_URL: http://api:8080
-      HOST_PERMISSION_API_URL: http://api:8080
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       PYTHONUNBUFFERED: "1"
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1}
