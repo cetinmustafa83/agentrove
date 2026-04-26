@@ -38,15 +38,15 @@ services:
       sandbox-setup:
         condition: service_completed_successfully
     volumes:
-      - ${AGENTROVE_STORAGE_PATH:-${PWD}/storage}:${AGENTROVE_STORAGE_PATH:-${PWD}/storage}
+      - /data/agentrove/storage:/data/agentrove/storage
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       ENVIRONMENT: production
-      DATABASE_URL: sqlite+aiosqlite:///${AGENTROVE_STORAGE_PATH:-${PWD}/storage}/agentrove.db
+      DATABASE_URL: sqlite+aiosqlite:////data/agentrove/storage/agentrove.db
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY to a 32+ character value before starting production}
       SESSION_SECRET_KEY: ${SESSION_SECRET_KEY:-}
-      STORAGE_PATH: ${AGENTROVE_STORAGE_PATH:-${PWD}/storage}
+      STORAGE_PATH: /data/agentrove/storage
       DOCKER_IMAGE: ${DOCKER_IMAGE:-ghcr.io/mng-dev-ai/agentrove-sandbox:latest}
       DOCKER_NETWORK: agentrove-sandbox-net
       DOCKER_PERMISSION_API_URL: http://api:8080
