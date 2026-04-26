@@ -259,7 +259,13 @@ Agentrove also syncs local Claude and Codex auth/config files into sandboxes whe
 
 - Production setup serves frontend at `/` and API under `/api/*`
 - Single-host Docker production:
-  `SECRET_KEY=$(openssl rand -hex 32) docker compose -f docker-compose-production.yml up -d --build`
+  ```bash
+  SECRET_KEY=$(openssl rand -hex 32) \
+    SERVICE_FQDN_WEB_80=https://yourdomain.com \
+    APP_URL=https://yourdomain.com \
+    ALLOWED_ORIGINS=https://yourdomain.com \
+    docker compose -f docker-compose-production.yml up -d --build
+  ```
 
 ## Tech Stack
 
