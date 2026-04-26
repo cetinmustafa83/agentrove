@@ -1,7 +1,9 @@
 from enum import Enum
 from typing import Any, TypeVar
+from urllib.parse import urlencode, urlsplit
 
 from sqladmin import ModelView
+from sqladmin.helpers import get_object_identifier
 from app.models.db_models.chat import Chat, Message, MessageAttachment
 from app.models.db_models.user import User, UserSettings
 from wtforms import PasswordField, SelectField
@@ -59,6 +61,13 @@ class UserAdmin(ModelView, model=User):
     form_excluded_columns = ["chats", "settings", "hashed_password"]
 
     form_extra_fields = {"password": PasswordField("Password")}
+
+    def _url_for_delete(self, request: Request, obj: Any) -> str:
+        # SQLAdmin renders absolute delete URLs; proxied admin pages need
+        # same-origin AJAX so browser requests keep flowing through /admin.
+        query_params = urlencode({"pks": get_object_identifier(obj)})
+        url = urlsplit(str(request.url_for("admin:delete", identity=self.identity)))
+        return f"{url.path}?{query_params}"
 
     async def on_model_change(
         self, data: dict[str, Any], model: User, is_created: bool, request: Request
