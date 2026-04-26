@@ -12,9 +12,7 @@ Self-hosted AI coding workspace for Claude Code, Codex, Copilot, Cursor, and Ope
 
 ## Screenshots
 
-![Chat Interface](screenshots/chat-interface.png)
-![Agent Workflow](screenshots/agent-workflow.png)
-
+![Chat Interface](screenshots/chat-interface.jpeg)
 ## Community
 
 Join the [Discord server](https://discord.gg/HvkJU8dcBA).
