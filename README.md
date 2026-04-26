@@ -238,6 +238,7 @@ The backend and sandbox images install the tooling Agentrove needs to run coding
 
 - Claude Code
 - Codex CLI
+- Copilot CLI (`copilot`)
 - Cursor CLI (`cursor-agent`)
 - OpenCode CLI (`opencode`)
 - `claude-agent-acp`
