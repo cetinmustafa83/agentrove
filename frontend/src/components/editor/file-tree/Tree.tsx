@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { FolderOpen } from 'lucide-react';
 import { FileTree as PierreFileTree, useFileTree } from '@pierre/trees/react';
+import type { FileTree } from '@pierre/trees';
 import { Spinner } from '@/components/ui/primitives/Spinner';
 import type { FileStructure } from '@/types/file-system.types';
 import {
@@ -24,6 +25,23 @@ const UNSAFE_CSS = `
     --trees-focus-ring-width: 1px;
   }
 `;
+
+function focusPathWithTreeOwnership(model: FileTree, path: string): void {
+  const root = model
+    .getFileTreeContainer()
+    ?.shadowRoot?.querySelector<HTMLElement>('[data-file-tree-virtualized-root]');
+  if (!root) return;
+  // pierre only scrolls focus changes when its root owns DOM focus.
+  root.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+  model.focusPath(path);
+}
+
+function expandAncestorFolders(model: FileTree, path: string): void {
+  for (const ancestor of getAncestorFolderPaths(path)) {
+    const item = model.getItem(ancestor);
+    if (item && item.isDirectory()) item.expand();
+  }
+}
 
 export interface TreeHandle {
   expandAncestors: (path: string) => void;
@@ -61,12 +79,14 @@ export const Tree = memo(function Tree({
     () => traverseFileStructure(files, (item) => (item.type === 'file' ? item.path : null)),
     [files],
   );
+  const selectedPath = selectedFile?.path ?? null;
   const initialPathsRef = useRef(paths);
 
   const { model } = useFileTree({
     paths: initialPathsRef.current,
     initialExpansion: 'open',
-    initialSelectedPaths: selectedFile ? [selectedFile.path] : [],
+    // Seeding also seeds focus, which makes cold-mount reveal a same-path no-op.
+    initialSelectedPaths: [],
     search: true,
     icons: 'complete',
     itemHeight: 26,
@@ -95,30 +115,45 @@ export const Tree = memo(function Tree({
     model.setGitStatus(entries);
   }, [modifiedPaths, model]);
 
-  // Apply external selection changes (e.g. CommandMenu jump) imperatively.
+  // Sync pierre's selection with selectedFile (set by external sources like CommandMenu).
   useEffect(() => {
-    const current = model.getSelectedPaths()[0] ?? null;
-    const next = selectedFile?.path ?? null;
-    if (current === next) return;
-    if (next) {
-      model.getItem(next)?.select();
-    } else {
-      const item = current ? model.getItem(current) : null;
-      item?.deselect();
+    const currentPaths = model.getSelectedPaths();
+    const next = selectedPath;
+    const inSync = next
+      ? currentPaths.length === 1 && currentPaths[0] === next
+      : currentPaths.length === 0;
+    if (inSync) return;
+    // pierre-trees' public `select()` appends to the existing selection rather than replacing
+    // (it routes to `selectPath`, not `selectOnlyPath`). Drop any stale entries first so
+    // the resulting selection is a single item — otherwise onSelectionChange fires with
+    // [oldPath, newPath] and our `selectedPaths[0]` reads the OLD path back into selectedFile.
+    for (const path of currentPaths) {
+      if (path !== next) model.getItem(path)?.deselect();
     }
-  }, [selectedFile, model]);
+    if (next && !currentPaths.includes(next)) {
+      model.getItem(next)?.select();
+    }
+  }, [selectedPath, model]);
+
+  useEffect(() => {
+    const next = selectedPath;
+    if (!next) return;
+    expandAncestorFolders(model, next);
+    // Let the panel mount/expand before pierre computes scroll against its viewport.
+    const frameId = window.requestAnimationFrame(() => {
+      focusPathWithTreeOwnership(model, next);
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [selectedPath, model]);
 
   useImperativeHandle(
     ref,
     () => ({
       expandAncestors: (path: string) => {
-        for (const ancestor of getAncestorFolderPaths(path)) {
-          const item = model.getItem(ancestor);
-          if (item && item.isDirectory()) item.expand();
-        }
+        expandAncestorFolders(model, path);
       },
       focusPath: (path: string) => {
-        model.focusPath(path);
+        focusPathWithTreeOwnership(model, path);
       },
       openSearch: () => {
         model.openSearch();
