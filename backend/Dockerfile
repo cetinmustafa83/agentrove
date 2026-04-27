@@ -46,10 +46,6 @@ RUN chown -R appuser:appuser /app && \
     chmod +x /app/entrypoint.sh
 
 ENV HOME=/home/appuser
-ENV CLAUDE_CONFIG_DIR=/app/storage/claude-data
-ENV CLAUDE_HOME=/app/storage/claude-data
-ENV CODEX_HOME=/app/storage/codex-data
-ENV CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ENV PYTHONUNBUFFERED=1
 ENV TERM=xterm-256color
 

@@ -6,7 +6,6 @@ ENV PATH="/home/user/.local/bin:/home/user/.nvm/versions/node/v20.18.0/bin:$PATH
 ENV NVM_DIR="/home/user/.nvm"
 ENV NODE_VERSION=20.18.0
 ENV TERM=xterm-256color
-ENV CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
 RUN apt-get update && apt-get install -y \
     curl \
