@@ -513,6 +513,7 @@ class AcpSession:
             # Web mode: override HOME so the agent uses the sandbox dir.
             # Desktop mode keeps the real host location so existing auth resolves.
             if not settings.DESKTOP_MODE:
+                Path(host_home).mkdir(parents=True, exist_ok=True)
                 env["HOME"] = host_home
         else:
             env.update(config.env)
