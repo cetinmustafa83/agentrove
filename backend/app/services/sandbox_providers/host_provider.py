@@ -17,6 +17,7 @@ from app.constants import (
     SANDBOX_DEFAULT_COMMAND_TIMEOUT,
     TERMINAL_TYPE,
 )
+from app.core.config import get_settings
 from app.services.exceptions import SandboxException
 from app.services.sandbox_providers.base import GIT_LS_FILES_CMD, SandboxProvider
 from app.services.sandbox_providers.types import (
@@ -30,6 +31,7 @@ from app.services.sandbox_providers.types import (
 from app.utils.sandbox import normalize_relative_path
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 class LocalHostProvider(SandboxProvider):
@@ -213,6 +215,10 @@ class LocalHostProvider(SandboxProvider):
         )
 
         env = os.environ.copy()
+        if sandbox_id and not settings.DESKTOP_MODE:
+            host_home = Path(settings.get_host_sandbox_base_dir()) / sandbox_id
+            host_home.mkdir(parents=True, exist_ok=True)
+            env["HOME"] = str(host_home)
         env["TERM"] = TERMINAL_TYPE
         shell = env.get("SHELL", "/bin/bash")
         cmd = (
