@@ -10,7 +10,8 @@ from pydantic import ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings
 from pythonjsonlogger import jsonlogger
 
-DEFAULT_DATABASE_URL = "sqlite+aiosqlite:////app/storage/agentrove.db"
+DEFAULT_STORAGE_PATH = "/data/agentrove/storage"
+DEFAULT_DATABASE_URL = f"sqlite+aiosqlite:///{DEFAULT_STORAGE_PATH}/agentrove.db"
 
 
 def _desktop_data_dir() -> Path:
@@ -43,7 +44,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
-    STORAGE_PATH: str = "/app/storage"
+    STORAGE_PATH: str = DEFAULT_STORAGE_PATH
 
     ALLOWED_ORIGINS: str | list[str] = [
         "http://localhost:3000",
@@ -90,7 +91,7 @@ class Settings(BaseSettings):
         default_db = f"sqlite+aiosqlite:///{(data_dir / 'agentrove.db').as_posix()}"
         if self.DATABASE_URL == DEFAULT_DATABASE_URL:
             self.DATABASE_URL = default_db
-        if self.STORAGE_PATH == "/app/storage":
+        if self.STORAGE_PATH == DEFAULT_STORAGE_PATH:
             self.STORAGE_PATH = str(data_dir / "storage")
             Path(self.STORAGE_PATH).mkdir(parents=True, exist_ok=True)
         origins = (
@@ -175,7 +176,7 @@ class Settings(BaseSettings):
     ) -> str | None:
         if v:
             return v
-        storage_path = info.data.get("STORAGE_PATH", "/app/storage")
+        storage_path = info.data.get("STORAGE_PATH", DEFAULT_STORAGE_PATH)
         return f"{storage_path.rstrip('/')}/host-sandboxes"
 
     def get_host_sandbox_base_dir(self) -> str:

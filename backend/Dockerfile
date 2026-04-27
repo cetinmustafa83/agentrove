@@ -49,7 +49,8 @@ ENV HOME=/home/appuser
 ENV PYTHONUNBUFFERED=1
 ENV TERM=xterm-256color
 
-RUN mkdir -p /app/storage/claude-data /app/storage/codex-data /app/storage/images /app/storage/pdfs /app/storage/xlsx
+RUN mkdir -p /data/agentrove/storage/images /data/agentrove/storage/pdfs /data/agentrove/storage/xlsx && \
+    chown -R appuser:appuser /data/agentrove/storage
 
 EXPOSE 8080
 
