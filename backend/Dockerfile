@@ -46,14 +46,11 @@ RUN chown -R appuser:appuser /app && \
     chmod +x /app/entrypoint.sh
 
 ENV HOME=/home/appuser
-ENV CLAUDE_CONFIG_DIR=/app/storage/claude-data
-ENV CLAUDE_HOME=/app/storage/claude-data
-ENV CODEX_HOME=/app/storage/codex-data
-ENV CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ENV PYTHONUNBUFFERED=1
 ENV TERM=xterm-256color
 
-RUN mkdir -p /app/storage/claude-data /app/storage/codex-data /app/storage/images /app/storage/pdfs /app/storage/xlsx
+RUN mkdir -p /data/agentrove/storage/images /data/agentrove/storage/pdfs /data/agentrove/storage/xlsx && \
+    chown -R appuser:appuser /data/agentrove/storage
 
 EXPOSE 8080
 
