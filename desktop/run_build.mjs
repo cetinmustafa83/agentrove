@@ -1,8 +1,16 @@
-import { createWriteStream } from 'node:fs';
-import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { get } from 'node:https';
 import { execFileSync } from 'node:child_process';
 
 const dir = dirname(fileURLToPath(import.meta.url));
@@ -11,240 +19,197 @@ const backendDir = join(rootDir, 'backend');
 const sidecarDir = join(rootDir, 'frontend', 'backend-sidecar');
 
 const PYTHON_VERSION = '3.12.12';
+const NODE_VERSION = '22.12.0';
 const RELEASE_TAG = '20260211';
-const GET_PIP_URL = 'https://bootstrap.pypa.io/get-pip.py';
 const RIPGREP_VERSION = '14.1.1';
+const CLAUDE_AGENT_ACP_VERSION = '0.31.0';
+const CODEX_ACP_VERSION = '0.12.0';
+const GET_PIP_URL = 'https://bootstrap.pypa.io/get-pip.py';
 
 const platform = process.platform;
 const arch = process.arch;
 const forceClean = process.argv.includes('--clean');
-const PYTHON_STAMP_VALUE = `${PYTHON_VERSION}+${RELEASE_TAG}-${arch}-${platform}`;
-const RG_STAMP_VALUE = `${RIPGREP_VERSION}-${arch}-${platform}`;
 
-const archMap = {
-  arm64: 'aarch64',
-  x64: 'x86_64',
-};
-
-const platformMap = {
-  darwin: 'apple-darwin',
-};
-
-function pythonUrl() {
-  const mappedArch = archMap[arch];
-  const mappedPlatform = platformMap[platform];
-  if (!mappedArch || !mappedPlatform) {
-    throw new Error(`Unsupported platform: ${arch}/${platform}`);
-  }
-  const name = `cpython-${PYTHON_VERSION}+${RELEASE_TAG}-${mappedArch}-${mappedPlatform}-install_only_stripped.tar.gz`;
-  return `https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/${name}`;
+if (platform !== 'darwin' || !['arm64', 'x64'].includes(arch)) {
+  throw new Error(`Desktop build supports macOS arm64/x64 only (received: ${arch}/${platform})`);
 }
 
-function pythonBin() {
-  return join(sidecarDir, 'python', 'bin', 'python3');
+const ARCH_TRIPLE = arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
+
+const pythonBin = join(sidecarDir, 'python', 'bin', 'python3');
+const nodeDir = join(sidecarDir, 'node');
+const nodeBin = join(nodeDir, 'bin', 'node');
+const npmBin = join(nodeDir, 'bin', 'npm');
+const sidecarBinDir = join(sidecarDir, 'bin');
+const rgBin = join(sidecarDir, 'bin', 'rg');
+const claudeAcpBin = join(sidecarBinDir, 'claude-agent-acp');
+const codexAcpBin = join(sidecarBinDir, 'codex-acp');
+
+const PYTHON_STAMP = `${PYTHON_VERSION}+${RELEASE_TAG}-${arch}-${platform}`;
+const NODE_STAMP = `${NODE_VERSION}-${arch}-${platform}`;
+const RG_STAMP = `${RIPGREP_VERSION}-${arch}-${platform}`;
+const ACP_STAMP = `${CLAUDE_AGENT_ACP_VERSION}-${CODEX_ACP_VERSION}-${NODE_STAMP}`;
+
+function stampPath(name) {
+  return join(sidecarDir, `.${name}-stamp`);
 }
 
-function pythonStampPath() {
-  return join(sidecarDir, '.python-stamp');
+function upToDate(name, value, ...required) {
+  const stamp = stampPath(name);
+  if (!existsSync(stamp)) return false;
+  if (required.some((f) => !existsSync(f))) return false;
+  return readFileSync(stamp, 'utf-8').trim() === value;
 }
 
-function downloadFile(url, outputPath) {
-  return new Promise((resolvePromise, rejectPromise) => {
-    const request = get(url, (response) => {
-      if (
-        response.statusCode &&
-        response.statusCode >= 300 &&
-        response.statusCode < 400 &&
-        response.headers.location
-      ) {
-        downloadFile(response.headers.location, outputPath)
-          .then(resolvePromise)
-          .catch(rejectPromise);
-        return;
-      }
-
-      if (response.statusCode !== 200) {
-        rejectPromise(new Error(`Download failed (${response.statusCode}): ${url}`));
-        return;
-      }
-
-      const file = createWriteStream(outputPath);
-      response.pipe(file);
-      file.on('finish', () => {
-        file.close();
-        resolvePromise();
-      });
-      file.on('error', rejectPromise);
-    });
-
-    request.on('error', rejectPromise);
-  });
+function writeStamp(name, value) {
+  writeFileSync(stampPath(name), `${value}\n`);
 }
 
-function downloadPython() {
-  const archivePath = join(sidecarDir, 'python.tar.gz');
-  const url = pythonUrl();
-  console.log(`Downloading Python ${PYTHON_VERSION}...`);
-  return downloadFile(url, archivePath)
-    .then(() => {
-      execFileSync('tar', ['-xzf', archivePath, '-C', sidecarDir], {
-        stdio: 'inherit',
-      });
-      rmSync(archivePath, { force: true });
-
-      if (!existsSync(pythonBin())) {
-        throw new Error(`Python binary not found at ${pythonBin()}`);
-      }
-
-      writeFileSync(pythonStampPath(), `${PYTHON_STAMP_VALUE}\n`);
-    });
+function download(url, outputPath) {
+  execFileSync('curl', ['-fsSL', '-o', outputPath, url], { stdio: 'inherit' });
 }
 
-async function installPip() {
-  console.log('Installing pip...');
-  const getPipPath = join(sidecarDir, 'get-pip.py');
-  await downloadFile(GET_PIP_URL, getPipPath);
-
-  try {
-    execFileSync(
-      pythonBin(),
-      [getPipPath, '--disable-pip-version-check'],
-      { stdio: 'inherit' }
-    );
-  } finally {
-    rmSync(getPipPath, { force: true });
-  }
-}
-
-function depsStampPath() {
-  return join(sidecarDir, '.deps-stamp');
+function extractTar(archivePath, destDir) {
+  mkdirSync(destDir, { recursive: true });
+  execFileSync('tar', ['-xzf', archivePath, '-C', destDir], { stdio: 'inherit' });
 }
 
 function depsStampValue() {
   const requirements = readFileSync(join(dir, 'requirements.txt'), 'utf-8');
-  return JSON.stringify({ requirements, python: PYTHON_STAMP_VALUE });
+  return JSON.stringify({ requirements, python: PYTHON_STAMP });
 }
 
-function pythonUpToDate() {
-  const stamp = pythonStampPath();
-  if (!existsSync(pythonBin()) || !existsSync(stamp)) return false;
-  return readFileSync(stamp, 'utf-8').trim() === PYTHON_STAMP_VALUE;
-}
-
-function depsUpToDate() {
-  const stamp = depsStampPath();
-  if (!existsSync(stamp)) return false;
+function fetchPython() {
+  const archive = join(sidecarDir, 'python.tar.gz');
+  const name = `cpython-${PYTHON_VERSION}+${RELEASE_TAG}-${ARCH_TRIPLE}-install_only_stripped.tar.gz`;
+  const url = `https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/${name}`;
+  console.log(`Downloading Python ${PYTHON_VERSION}...`);
+  rmSync(join(sidecarDir, 'python'), { recursive: true, force: true });
   try {
-    const installed = JSON.parse(readFileSync(stamp, 'utf-8'));
-    return installed.requirements === readFileSync(join(dir, 'requirements.txt'), 'utf-8') &&
-      installed.python === PYTHON_STAMP_VALUE;
-  } catch {
-    return false;
+    download(url, archive);
+    extractTar(archive, sidecarDir);
+  } finally {
+    rmSync(archive, { force: true });
+  }
+  if (!existsSync(pythonBin)) throw new Error(`Python binary not found at ${pythonBin}`);
+  writeStamp('python', PYTHON_STAMP);
+}
+
+function fetchNode() {
+  const archive = join(sidecarDir, 'node.tar.gz');
+  const extractedDir = join(sidecarDir, `node-v${NODE_VERSION}-darwin-${arch}`);
+  const url = `https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-${arch}.tar.gz`;
+  console.log(`Downloading Node ${NODE_VERSION}...`);
+  rmSync(extractedDir, { recursive: true, force: true });
+  rmSync(nodeDir, { recursive: true, force: true });
+  try {
+    download(url, archive);
+    extractTar(archive, sidecarDir);
+    if (!existsSync(join(extractedDir, 'bin', 'node'))) {
+      throw new Error(`Node binary not found at ${join(extractedDir, 'bin', 'node')}`);
+    }
+    renameSync(extractedDir, nodeDir);
+  } finally {
+    rmSync(archive, { force: true });
+    rmSync(extractedDir, { recursive: true, force: true });
+  }
+  writeStamp('node', NODE_STAMP);
+}
+
+function fetchRipgrep() {
+  const innerDir = `ripgrep-${RIPGREP_VERSION}-${ARCH_TRIPLE}`;
+  const url = `https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/${innerDir}.tar.gz`;
+  const archive = join(sidecarDir, 'rg.tar.gz');
+  // Extract into a scratch dir so we can pluck out just the `rg` binary and
+  // drop the accompanying docs/completions — keeps the .dmg lean.
+  const extractDir = join(sidecarDir, '_rg-extract');
+  console.log(`Downloading ripgrep ${RIPGREP_VERSION}...`);
+  rmSync(extractDir, { recursive: true, force: true });
+  try {
+    download(url, archive);
+    extractTar(archive, extractDir);
+    const rgSource = join(extractDir, innerDir, 'rg');
+    if (!existsSync(rgSource)) throw new Error(`rg binary not found at ${rgSource}`);
+    mkdirSync(sidecarBinDir, { recursive: true });
+    copyFileSync(rgSource, rgBin);
+    chmodSync(rgBin, 0o755);
+  } finally {
+    rmSync(archive, { force: true });
+    rmSync(extractDir, { recursive: true, force: true });
+  }
+  writeStamp('rg', RG_STAMP);
+}
+
+function installPip() {
+  console.log('Installing pip...');
+  const getPip = join(sidecarDir, 'get-pip.py');
+  try {
+    download(GET_PIP_URL, getPip);
+    execFileSync(pythonBin, [getPip, '--disable-pip-version-check'], { stdio: 'inherit' });
+  } finally {
+    rmSync(getPip, { force: true });
   }
 }
 
-async function installDeps() {
+function installPyDeps() {
   try {
-    execFileSync(pythonBin(), ['-m', 'pip', '--version'], { stdio: 'ignore' });
+    execFileSync(pythonBin, ['-m', 'pip', '--version'], { stdio: 'ignore' });
   } catch {
-    await installPip();
+    installPip();
   }
   console.log('Installing dependencies...');
   execFileSync(
-    pythonBin(),
+    pythonBin,
     [
-      '-m',
-      'pip',
-      'install',
-      '-q',
+      '-m', 'pip', 'install', '-q',
       '--disable-pip-version-check',
       '--no-warn-script-location',
-      '-r',
-      join(dir, 'requirements.txt'),
+      '-r', join(dir, 'requirements.txt'),
     ],
-    {
-      cwd: backendDir,
-      stdio: 'inherit',
-    }
+    { cwd: backendDir, stdio: 'inherit' },
   );
-  writeFileSync(depsStampPath(), depsStampValue());
+  writeStamp('deps', depsStampValue());
 }
 
-function ripgrepRelease() {
-  const mappedArch = archMap[arch];
-  const mappedPlatform = platformMap[platform];
-  if (!mappedArch || !mappedPlatform) {
-    throw new Error(`Unsupported platform for ripgrep: ${arch}/${platform}`);
-  }
-  const triple = `${mappedArch}-${mappedPlatform}`;
-  return {
-    url: `https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/ripgrep-${RIPGREP_VERSION}-${triple}.tar.gz`,
-    innerDir: `ripgrep-${RIPGREP_VERSION}-${triple}`,
-  };
+function installAcpAdapters() {
+  console.log('Installing ACP adapters...');
+  execFileSync(
+    npmBin,
+    [
+      'install', '--prefix', sidecarDir,
+      '--omit=dev', '--no-audit', '--no-fund', '--package-lock=false',
+      `@agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_ACP_VERSION}`,
+      `@zed-industries/codex-acp@${CODEX_ACP_VERSION}`,
+    ],
+    { stdio: 'inherit' },
+  );
+  writeStamp('acp', ACP_STAMP);
 }
 
-function rgBin() {
-  return join(sidecarDir, 'bin', 'rg');
+function writeAcpLauncher(name, packageEntry) {
+  const launcher = join(sidecarBinDir, name);
+  mkdirSync(sidecarBinDir, { recursive: true });
+  writeFileSync(
+    launcher,
+    '#!/bin/bash\n' +
+      'SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\n' +
+      `exec "$SCRIPT_DIR/../node/bin/node" "$SCRIPT_DIR/../node_modules/${packageEntry}" "$@"\n`,
+  );
+  chmodSync(launcher, 0o755);
 }
 
-function rgStampPath() {
-  return join(sidecarDir, '.rg-stamp');
-}
-
-function rgUpToDate() {
-  const stamp = rgStampPath();
-  if (!existsSync(rgBin()) || !existsSync(stamp)) return false;
-  return readFileSync(stamp, 'utf-8').trim() === RG_STAMP_VALUE;
-}
-
-async function downloadRipgrep() {
-  const { url, innerDir } = ripgrepRelease();
-  const archivePath = join(sidecarDir, 'rg.tar.gz');
-  // Extract into a scratch dir so we can pluck out just the `rg` binary and
-  // drop the accompanying docs/completions — only the binary is needed at
-  // runtime, and keeping the tree lean keeps the .dmg smaller.
-  const extractDir = join(sidecarDir, '_rg-extract');
-  const binDir = join(sidecarDir, 'bin');
-
-  console.log(`Downloading ripgrep ${RIPGREP_VERSION}...`);
-  await downloadFile(url, archivePath);
-
-  try {
-    rmSync(extractDir, { recursive: true, force: true });
-    mkdirSync(extractDir, { recursive: true });
-    execFileSync('tar', ['-xzf', archivePath, '-C', extractDir], {
-      stdio: 'inherit',
-    });
-
-    const rgSource = join(extractDir, innerDir, 'rg');
-    if (!existsSync(rgSource)) {
-      throw new Error(`rg binary not found at ${rgSource}`);
-    }
-    mkdirSync(binDir, { recursive: true });
-    copyFileSync(rgSource, rgBin());
-    chmodSync(rgBin(), 0o755);
-  } finally {
-    rmSync(archivePath, { force: true });
-    rmSync(extractDir, { recursive: true, force: true });
-  }
-
-  writeFileSync(rgStampPath(), `${RG_STAMP_VALUE}\n`);
+function writeAcpLaunchers() {
+  writeAcpLauncher('claude-agent-acp', '@agentclientprotocol/claude-agent-acp/dist/index.js');
+  writeAcpLauncher('codex-acp', '@zed-industries/codex-acp/bin/codex-acp.js');
 }
 
 function copySource() {
   console.log('Copying source...');
-  const pycacheFilter = (src) => !src.includes('__pycache__') && !src.endsWith('.pyc');
+  const filter = (src) => !src.includes('__pycache__') && !src.endsWith('.pyc');
   rmSync(join(sidecarDir, 'app'), { recursive: true, force: true });
   rmSync(join(sidecarDir, 'migrations'), { recursive: true, force: true });
-
-  cpSync(join(backendDir, 'app'), join(sidecarDir, 'app'), {
-    recursive: true,
-    filter: pycacheFilter,
-  });
-  cpSync(join(backendDir, 'migrations'), join(sidecarDir, 'migrations'), {
-    recursive: true,
-    filter: pycacheFilter,
-  });
+  cpSync(join(backendDir, 'app'), join(sidecarDir, 'app'), { recursive: true, filter });
+  cpSync(join(backendDir, 'migrations'), join(sidecarDir, 'migrations'), { recursive: true, filter });
   copyFileSync(join(backendDir, 'alembic.ini'), join(sidecarDir, 'alembic.ini'));
   copyFileSync(join(backendDir, 'migrate.py'), join(sidecarDir, 'migrate.py'));
   copyFileSync(join(dir, 'entry.py'), join(sidecarDir, 'entry.py'));
@@ -262,40 +227,44 @@ function writeLauncher() {
     '#!/bin/bash\n' +
       'SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\n' +
       'export PYTHONPATH="$SCRIPT_DIR"\n' +
-      'export PATH="$SCRIPT_DIR/bin:$PATH"\n' +
-      'exec "$SCRIPT_DIR/python/bin/python3" "$SCRIPT_DIR/entry.py" "$@"\n'
+      'export PATH="$SCRIPT_DIR/bin:$SCRIPT_DIR/node/bin:$PATH"\n' +
+      'exec "$SCRIPT_DIR/python/bin/python3" "$SCRIPT_DIR/entry.py" "$@"\n',
   );
   chmodSync(launcher, 0o755);
 }
 
-async function run() {
-  if (platform !== 'darwin') {
-    throw new Error(`Desktop build currently supports macOS only (received: ${platform})`);
-  }
-
+function run() {
   if (forceClean && existsSync(sidecarDir)) {
     rmSync(sidecarDir, { recursive: true, force: true });
   }
   mkdirSync(sidecarDir, { recursive: true });
 
-  const pythonChanged = !pythonUpToDate();
-  if (pythonChanged) {
-    rmSync(join(sidecarDir, 'python'), { recursive: true, force: true });
-    await downloadPython();
+  const pythonChanged = !upToDate('python', PYTHON_STAMP, pythonBin);
+  if (pythonChanged) fetchPython();
+  else console.log('Python already installed, skipping download.');
+
+  const nodeChanged = !upToDate('node', NODE_STAMP, nodeBin, npmBin);
+  if (nodeChanged) fetchNode();
+  else console.log('Node already installed, skipping download.');
+
+  if (!nodeChanged && upToDate('acp', ACP_STAMP, claudeAcpBin, codexAcpBin)) {
+    console.log('ACP adapters already installed, skipping install.');
   } else {
-    console.log('Python already installed, skipping download.');
+    installAcpAdapters();
   }
 
-  if (!pythonChanged && depsUpToDate()) {
+  writeAcpLaunchers();
+
+  if (!pythonChanged && upToDate('deps', depsStampValue())) {
     console.log('Dependencies up to date, skipping install.');
   } else {
-    await installDeps();
+    installPyDeps();
   }
 
-  if (rgUpToDate()) {
+  if (upToDate('rg', RG_STAMP, rgBin)) {
     console.log('ripgrep already installed, skipping download.');
   } else {
-    await downloadRipgrep();
+    fetchRipgrep();
   }
 
   copySource();
@@ -303,7 +272,9 @@ async function run() {
   console.log('Done');
 }
 
-run().catch((error) => {
+try {
+  run();
+} catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
-});
+}

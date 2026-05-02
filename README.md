@@ -191,6 +191,7 @@ pre-commit run --all-files
 ## Desktop (macOS)
 
 Desktop mode uses Tauri with a bundled Python backend sidecar on `localhost:8081` and local SQLite storage.
+The desktop sidecar bundles `claude-agent-acp` and `codex-acp`; host-mode sessions still use the user's Claude Code or Codex CLI installation for the underlying agent.
 
 ### Download prebuilt app
 
