@@ -30,6 +30,7 @@ from app.services.acp.adapters import (
     LaunchConfig,
 )
 from app.services.acp.client import AcpClientHandler
+from app.services.exceptions import AgentException
 from app.services.sandbox_providers import SandboxProviderType
 from app.services.sandbox_providers.base import SandboxProvider
 from app.services.sandbox_providers.docker_provider import (
@@ -519,16 +520,24 @@ class AcpSession:
             env.update(config.env)
         env.setdefault("TERM", TERMINAL_TYPE)
 
-        return await asyncio.create_subprocess_exec(
-            launch.binary,
-            *launch.cli_args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            limit=STDIO_BUFFER_LIMIT,
-            env=env,
-            cwd=config.cwd,
-        )
+        try:
+            return await asyncio.create_subprocess_exec(
+                launch.binary,
+                *launch.cli_args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                limit=STDIO_BUFFER_LIMIT,
+                env=env,
+                cwd=config.cwd,
+            )
+        except FileNotFoundError as exc:
+            raise AgentException(
+                launch.binary
+                + " is required for "
+                + config.agent_kind.value
+                + " host-mode sessions. Install it and restart Agentrove."
+            ) from exc
 
     @staticmethod
     def _build_mcp_servers(
