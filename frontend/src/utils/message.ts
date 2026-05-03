@@ -35,6 +35,7 @@ export function createInitialMessage(
         : [],
     created_at: new Date().toISOString(),
     model_id: modelId,
+    checkpoint_id: null,
   };
 }
 

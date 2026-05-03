@@ -342,6 +342,7 @@ export const Chat = memo(function Chat() {
               isStreaming={messageIsStreaming}
               createdAt={msg.created_at}
               modelId={msg.model_id}
+              checkpointId={msg.checkpoint_id}
               isLastBotMessage={isLastBotMessage && !messageIsStreaming}
             />
           ) : (

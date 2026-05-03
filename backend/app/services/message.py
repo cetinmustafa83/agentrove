@@ -7,7 +7,13 @@ from sqlalchemy import and_, case, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.db_models.chat import Chat, Message, MessageAttachment, MessageEvent
+from app.models.db_models.chat import (
+    Chat,
+    ChatCheckpoint,
+    Message,
+    MessageAttachment,
+    MessageEvent,
+)
 from app.models.db_models.enums import MessageRole, MessageStreamStatus
 from app.models.schemas.chat import Message as MessageSchema
 from app.models.schemas.pagination import CursorPaginatedResponse
@@ -265,7 +271,11 @@ class MessageService(BaseDbService[Message]):
         # created in the same tick share a timestamp.
         async with self.session_factory() as db:
             query = (
-                select(Message)
+                select(Message, ChatCheckpoint.id)
+                .outerjoin(
+                    ChatCheckpoint,
+                    ChatCheckpoint.assistant_message_id == Message.id,
+                )
                 .options(selectinload(Message.attachments))
                 .filter(Message.chat_id == chat_id, Message.deleted_at.is_(None))
                 .order_by(Message.created_at.desc(), Message.id.desc())
@@ -289,10 +299,13 @@ class MessageService(BaseDbService[Message]):
                 )
 
             result = await db.execute(query)
-            rows = list(result.scalars().all())
+            rows = list(result.all())
 
             has_more = len(rows) > limit
-            items = rows[:limit]
+            items = []
+            for message, checkpoint_id in rows[:limit]:
+                message.checkpoint_id = checkpoint_id
+                items.append(message)
 
             next_cursor = None
             if has_more and items:

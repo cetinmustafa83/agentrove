@@ -1,4 +1,5 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
+import { Undo2 } from 'lucide-react';
 import { UserMessageContent, AssistantMessageContent } from './MessageContent';
 import { MessageActions } from './MessageActions';
 import { useModelMap } from '@/hooks/queries/useModelQueries';
@@ -8,9 +9,12 @@ import {
   type MessageAttachment,
 } from '@/types/chat.types';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { Button } from '@/components/ui/primitives/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { formatRelativeTime, formatFullTimestamp } from '@/utils/date';
 import { useChatContext } from '@/hooks/useChatContext';
 import { useChatInputMessageContext } from '@/hooks/useChatInputMessageContext';
+import { useCheckpointRestore } from '@/hooks/useCheckpointRestore';
 
 interface SharedContentProps {
   contentRender: {
@@ -66,6 +70,7 @@ export const UserMessage = memo(function UserMessage({
 export interface AssistantMessageProps extends SharedContentProps {
   contentText: string;
   id: string;
+  checkpointId: string | null;
   createdAt?: string;
   modelId?: string;
   isLastBotMessage?: boolean;
@@ -73,6 +78,7 @@ export interface AssistantMessageProps extends SharedContentProps {
 
 export const AssistantMessage = memo(function AssistantMessage({
   id,
+  checkpointId,
   contentText,
   contentRender,
   attachments,
@@ -81,10 +87,12 @@ export const AssistantMessage = memo(function AssistantMessage({
   modelId,
   isLastBotMessage,
 }: AssistantMessageProps) {
-  const { chatId } = useChatContext();
+  const { chatId, sandboxId } = useChatContext();
   const { setInputMessage } = useChatInputMessageContext();
   const onSuggestionSelect = isLastBotMessage ? setInputMessage : undefined;
   const modelMap = useModelMap();
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const { restore, isRestoring } = useCheckpointRestore(id, sandboxId);
 
   const relativeTime = createdAt ? formatRelativeTime(createdAt) : '';
   const fullTimestamp = createdAt ? formatFullTimestamp(createdAt) : '';
@@ -123,7 +131,33 @@ export const AssistantMessage = memo(function AssistantMessage({
 
           {contentText.trim() && !isStreaming && (
             <div className="mt-2 flex items-center justify-between">
-              <MessageActions messageId={id} contentText={contentText} />
+              <div className="flex items-center gap-0.5">
+                <MessageActions messageId={id} contentText={contentText} />
+                {checkpointId && (
+                  <>
+                    <Tooltip content="Restore to before this run" position="bottom">
+                      <Button
+                        onClick={() => setRestoreOpen(true)}
+                        variant="unstyled"
+                        disabled={isRestoring}
+                        className="rounded-md p-1 text-text-quaternary transition-colors duration-200 hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50 dark:text-text-dark-quaternary dark:hover:bg-surface-dark-hover dark:hover:text-text-dark-primary"
+                      >
+                        <Undo2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </Tooltip>
+                    {restoreOpen && (
+                      <ConfirmDialog
+                        isOpen
+                        onClose={() => setRestoreOpen(false)}
+                        onConfirm={() => restore()}
+                        title="Restore to before this run?"
+                        message="The workspace will be reset to the checkpoint captured before this assistant run. Changes made by the run will be discarded."
+                        confirmLabel="Restore"
+                      />
+                    )}
+                  </>
+                )}
+              </div>
 
               <div className="flex items-center gap-1.5 text-2xs text-text-quaternary dark:text-text-dark-quaternary">
                 {modelName && <span>{modelName}</span>}

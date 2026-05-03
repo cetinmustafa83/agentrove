@@ -236,7 +236,7 @@ export const useSearchInFilesQuery = (
 // paths (e.g. `.worktrees/<id>/src/App.tsx`), so targeting a specific
 // `fileContent` key would miss worktree entries. Invalidate the whole
 // file-content space under this sandbox instead.
-const invalidateAfterGitRestore = (queryClient: QueryClient, sandboxId: string) =>
+export const invalidateAfterGitRestore = (queryClient: QueryClient, sandboxId: string) =>
   Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.sandbox.gitDiffAll(sandboxId) }),
     queryClient.invalidateQueries({ queryKey: queryKeys.sandbox.filesMetadata(sandboxId) }),

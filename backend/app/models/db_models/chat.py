@@ -17,6 +17,7 @@ from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+from app.db.migration_helpers import uuid_server_default
 from app.db.types import GUID, enum_values
 
 from .enums import AttachmentType, MessageRole, MessageStreamStatus
@@ -259,4 +260,35 @@ class MessageEvent(Base):
             "idx_message_events_chat_id_stream_id_seq", "chat_id", "stream_id", "seq"
         ),
         Index("uq_message_events_stream_seq", "stream_id", "seq", unique=True),
+    )
+
+
+class ChatCheckpoint(Base):
+    __tablename__ = "chat_checkpoints"
+
+    id: Mapped[UUID] = mapped_column(
+        GUID(),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=uuid_server_default(),
+    )
+    chat_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("chats.id", ondelete="CASCADE"), nullable=False
+    )
+    assistant_message_id: Mapped[UUID] = mapped_column(
+        GUID(), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
+    )
+    cwd: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    base_head: Mapped[str] = mapped_column(String(64), nullable=False)
+    pre_run_diff: Mapped[str] = mapped_column(
+        Text, nullable=False, default="", server_default=""
+    )
+
+    __table_args__ = (
+        Index(
+            "idx_chat_checkpoints_assistant_message_id",
+            "assistant_message_id",
+            unique=True,
+        ),
+        Index("idx_chat_checkpoints_chat_id_created_at", "chat_id", "created_at"),
     )

@@ -38,6 +38,7 @@ export interface QueueProcessingData {
 export interface ApiStreamResponse {
   source: EventSource;
   messageId: string;
+  checkpointId: string | null;
 }
 
 export interface ActiveStream {

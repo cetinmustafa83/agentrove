@@ -55,6 +55,7 @@ class Message(MessageBase):
     model_id: str | None = None
     stream_status: MessageStreamStatus | None = None
     attachments: list[MessageAttachment] = Field(default_factory=list)
+    checkpoint_id: UUID | None = None
 
 
 class ChatBase(BaseModel):
@@ -99,6 +100,7 @@ class ChatCompletionResponse(BaseModel):
     chat_id: UUID
     message_id: UUID
     last_seq: int = 0
+    checkpoint_id: UUID | None = None
 
 
 class EnhancePromptResponse(BaseModel):
