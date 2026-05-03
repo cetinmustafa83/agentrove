@@ -14,6 +14,7 @@ import type {
 import { chatService } from '@/services/chatService';
 import { useMessageQueueStore } from '@/store/messageQueueStore';
 import type { Chat, ChatSearchResponse, ContextUsage, CreateChatRequest } from '@/types/chat.types';
+import type { ChangedFilesData } from '@/types/sandbox.types';
 import type { PaginatedChats } from '@/types/api.types';
 import { createMutation } from './createMutation';
 import { queryKeys } from './queryKeys';
@@ -119,6 +120,19 @@ export const useContextUsageQuery = (
     queryFn: () => chatService.getContextUsage(chatId),
     enabled: !!chatId,
     staleTime: 0,
+    ...options,
+  });
+};
+
+export const useMessageChangesQuery = (
+  messageId: string | undefined,
+  options?: Partial<UseQueryOptions<ChangedFilesData>>,
+) => {
+  return useQuery({
+    queryKey: queryKeys.messageChanges(messageId),
+    queryFn: () => chatService.getMessageChanges(messageId!),
+    enabled: !!messageId,
+    staleTime: Infinity,
     ...options,
   });
 };

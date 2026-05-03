@@ -49,7 +49,7 @@ from app.models.schemas.chat import (
     MessageEvent,
     PermissionRespondResponse,
 )
-from app.models.schemas.sandbox import GitCommandResponse
+from app.models.schemas.sandbox import ChangedFilesResponse, GitCommandResponse
 from app.models.schemas.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
@@ -428,6 +428,28 @@ async def restore_message_checkpoint(
 ) -> GitCommandResponse:
     try:
         return await chat_service.restore_checkpoint_all(message_id, current_user)
+    except ChatException as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e)) from e
+    except SandboxException as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@router.get(
+    "/messages/{message_id}/changes",
+    response_model=ChangedFilesResponse,
+)
+async def get_message_changes(
+    message_id: UUID,
+    current_user: User = Depends(get_current_user),
+    chat_service: ChatService = Depends(get_chat_service),
+) -> ChangedFilesResponse:
+    try:
+        return await chat_service.get_changed_files(message_id, current_user)
     except ChatException as e:
         raise HTTPException(status_code=e.status_code, detail=str(e)) from e
     except SandboxException as e:
