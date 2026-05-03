@@ -84,6 +84,11 @@ export interface ChangedFilesData {
   cwd: string;
 }
 
+export interface FileDiffData {
+  path: string;
+  diff: string;
+}
+
 export interface GitRemoteUrlData {
   owner: string;
   repo: string;

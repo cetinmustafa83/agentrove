@@ -14,7 +14,7 @@ import type {
 import { chatService } from '@/services/chatService';
 import { useMessageQueueStore } from '@/store/messageQueueStore';
 import type { Chat, ChatSearchResponse, ContextUsage, CreateChatRequest } from '@/types/chat.types';
-import type { ChangedFilesData } from '@/types/sandbox.types';
+import type { ChangedFilesData, FileDiffData } from '@/types/sandbox.types';
 import type { PaginatedChats } from '@/types/api.types';
 import { createMutation } from './createMutation';
 import { queryKeys } from './queryKeys';
@@ -133,6 +133,21 @@ export const useMessageChangesQuery = (
     queryFn: () => chatService.getMessageChanges(messageId!),
     enabled: !!messageId,
     staleTime: Infinity,
+    ...options,
+  });
+};
+
+export const useMessageFileDiffQuery = (
+  messageId: string | undefined,
+  path: string | undefined,
+  options?: Partial<UseQueryOptions<FileDiffData>>,
+) => {
+  return useQuery({
+    queryKey: queryKeys.messageFileDiff(messageId, path),
+    queryFn: () => chatService.getMessageFileDiff(messageId!, path!),
+    enabled: !!messageId && !!path,
+    staleTime: Infinity,
+    gcTime: 1000 * 60 * 5,
     ...options,
   });
 };

@@ -10,7 +10,7 @@ import type {
   CreateChatRequest,
   ContextUsage,
 } from '@/types/chat.types';
-import type { ChangedFilesData, GitCommitResult } from '@/types/sandbox.types';
+import type { ChangedFilesData, FileDiffData, GitCommitResult } from '@/types/sandbox.types';
 import type { CursorPaginationParams, PaginatedChats, PaginatedMessages } from '@/types/api.types';
 
 async function createCompletion(
@@ -292,6 +292,19 @@ async function getMessageChanges(messageId: string): Promise<ChangedFilesData> {
   });
 }
 
+async function getMessageFileDiff(messageId: string, path: string): Promise<FileDiffData> {
+  validateId(messageId, 'Message ID');
+  validateRequired(path, 'Path');
+
+  return serviceCall(async () => {
+    const queryString = buildQueryString({ path });
+    const response = await apiClient.get<FileDiffData>(
+      `/chat/messages/${messageId}/changes/diff${queryString}`,
+    );
+    return ensureResponse(response, 'Failed to load file diff');
+  });
+}
+
 async function restoreMessageCheckpoint(messageId: string): Promise<GitCommitResult> {
   validateId(messageId, 'Message ID');
 
@@ -319,6 +332,7 @@ export const chatService = {
   getContextUsage,
   enhancePrompt,
   getMessageChanges,
+  getMessageFileDiff,
   restoreMessageCheckpoint,
   pinChat,
   unpinChat,
