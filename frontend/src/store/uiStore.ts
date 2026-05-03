@@ -32,6 +32,9 @@ type UIStoreState = ThemeState &
     pendingFileJump: { path: string; line: number; nonce: number } | null;
     openFileInEditor: (path: string, line?: number) => void;
     consumeFileJump: () => void;
+    pendingDiffFile: string | null;
+    openInDiffView: (path: string) => void;
+    consumeDiffFileJump: () => void;
     pendingChatMessage: string | null;
     setPendingChatMessage: (message: string | null) => void;
   };
@@ -40,6 +43,32 @@ const getInitialSidebarState = (): boolean => {
   if (typeof window === 'undefined') return false;
   return window.innerWidth >= MOBILE_BREAKPOINT;
 };
+
+// Mobile switches the sole view; desktop appends a tile to the mosaic
+// unless the view is already present.
+function ensureViewVisible(
+  set: (partial: Partial<UIStoreState>) => void,
+  get: () => UIStoreState,
+  view: ViewType,
+): void {
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT;
+  if (isMobile) {
+    set({ currentView: view, mosaicLayout: view });
+    return;
+  }
+  const state = get();
+  const layout = state.mosaicLayout;
+  if (layout && isMosaicSplitNode(layout)) {
+    if (!getLeaves(layout).includes(view)) {
+      set({ mosaicLayout: { direction: 'row', first: layout, second: view } });
+    }
+    return;
+  }
+  const currentView = (layout ?? state.currentView) as ViewType;
+  if (currentView !== view) {
+    set({ mosaicLayout: { direction: 'row', first: currentView, second: view } });
+  }
+}
 
 export const useUIStore = create<UIStoreState>()(
   persist(
@@ -72,40 +101,19 @@ export const useUIStore = create<UIStoreState>()(
       pendingFilePath: null,
       pendingFileJump: null,
       consumeFileJump: () => set({ pendingFileJump: null }),
-      // Sets the pending file path and ensures the editor pane is visible.
-      // On mobile, switches to the editor view. On desktop, adds an editor
-      // tile to the mosaic layout if one isn't already present.
-      // When `line` is provided, also queues a jump the editor view consumes.
+      pendingDiffFile: null,
+      consumeDiffFileJump: () => set({ pendingDiffFile: null }),
       openFileInEditor: (path, line) => {
         set({
           pendingFilePath: path,
           pendingFileJump:
             line != null ? { path, line, nonce: (get().pendingFileJump?.nonce ?? 0) + 1 } : null,
         });
-        const isMobile = typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT;
-        if (isMobile) {
-          set({ currentView: 'editor', mosaicLayout: 'editor' });
-        } else {
-          const state = get();
-          const layout = state.mosaicLayout;
-          if (layout && isMosaicSplitNode(layout)) {
-            const leaves = getLeaves(layout);
-            if (!leaves.includes('editor')) {
-              set({ mosaicLayout: { direction: 'row', first: layout, second: 'editor' } });
-            }
-          } else {
-            const currentView = (layout ?? state.currentView) as ViewType;
-            if (currentView !== 'editor') {
-              set({
-                mosaicLayout: {
-                  direction: 'row',
-                  first: currentView,
-                  second: 'editor',
-                },
-              });
-            }
-          }
-        }
+        ensureViewVisible(set, get, 'editor');
+      },
+      openInDiffView: (path) => {
+        set({ pendingDiffFile: path });
+        ensureViewVisible(set, get, 'diff');
       },
 
       currentView: 'agent',

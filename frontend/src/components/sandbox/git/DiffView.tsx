@@ -24,6 +24,7 @@ import {
   useGitRestoreFileMutation,
 } from '@/hooks/queries/useSandboxQueries';
 import { useResolvedTheme } from '@/hooks/useResolvedTheme';
+import { useUIStore } from '@/store/uiStore';
 import { parsePatchFiles, parseDiffFromFile } from '@pierre/diffs';
 import type { FileDiffMetadata, FileContents } from '@pierre/diffs';
 import { FileDiff, Virtualizer, WorkerPoolContextProvider } from '@pierre/diffs/react';
@@ -342,6 +343,30 @@ export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps
     [theme, diffStyle],
   );
 
+  // External request (from ChangedFilesPanel "open in diff view") to focus a
+  // specific file. Best-effort match against parsedFiles — exact, then suffix
+  // either way to absorb cwd/repo-root prefix differences.
+  const pendingDiffFile = useUIStore((s) => s.pendingDiffFile);
+  useEffect(() => {
+    if (!pendingDiffFile || parsedFiles.length === 0) return;
+    const match =
+      parsedFiles.find((f) => f.name === pendingDiffFile) ??
+      parsedFiles.find((f) => f.name.endsWith(pendingDiffFile) || pendingDiffFile.endsWith(f.name));
+    if (match) {
+      setExpandedFiles((prev) => {
+        if (prev.has(match.name)) return prev;
+        const next = new Set(prev);
+        next.add(match.name);
+        return next;
+      });
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-diff-file-path="${CSS.escape(match.name)}"]`);
+        el?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      });
+    }
+    useUIStore.getState().consumeDiffFileJump();
+  }, [pendingDiffFile, parsedFiles, setExpandedFiles]);
+
   const allExpanded = parsedFiles.length > 0 && parsedFiles.every((f) => expandedFiles.has(f.name));
 
   const toggleAll = useCallback(() => {
@@ -509,7 +534,7 @@ export const DiffView = memo(function DiffView({ sandboxId, cwd }: DiffViewProps
                 const isExpanded = expandedFiles.has(file.name);
                 const isRenamed = isRenameFileType(file.type);
                 return (
-                  <div key={file.name}>
+                  <div key={file.name} data-diff-file-path={file.name}>
                     <div className="group flex w-full items-center transition-colors duration-200 hover:bg-surface-hover dark:hover:bg-surface-dark-hover">
                       <Button
                         variant="unstyled"

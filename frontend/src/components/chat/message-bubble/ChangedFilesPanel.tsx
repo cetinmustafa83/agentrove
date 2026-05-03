@@ -1,7 +1,15 @@
-import { memo, useState } from 'react';
-import { ChevronDown, Files } from 'lucide-react';
+import { Fragment, memo, useState } from 'react';
+import {
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  Files,
+  GitCompareArrows,
+  Loader2,
+} from 'lucide-react';
 import { Button } from '@/components/ui/primitives/Button';
-import { useMessageChangesQuery } from '@/hooks/queries/useChatQueries';
+import { DiffView } from '@/components/chat/tools/common/DiffView';
+import { useMessageChangesQuery, useMessageFileDiffQuery } from '@/hooks/queries/useChatQueries';
 import { useUIStore } from '@/store/uiStore';
 import type { ChangedFile, ChangedFileStatus } from '@/types/sandbox.types';
 
@@ -22,7 +30,7 @@ const STATUS_COLOR: Record<ChangedFileStatus, string> = {
 };
 
 const ChangedFilesPanelInner: React.FC<ChangedFilesPanelProps> = ({ messageId }) => {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const { data } = useMessageChangesQuery(messageId);
 
   const files = data?.files ?? [];
@@ -66,13 +74,8 @@ const ChangedFilesPanelInner: React.FC<ChangedFilesPanelProps> = ({ messageId })
 
       {expanded && (
         <div className="border-t border-border/50 dark:border-border-dark/50">
-          {files.map((file, index) => (
-            <ChangedFileRow
-              key={file.path}
-              file={file}
-              cwd={cwd}
-              isLast={index === files.length - 1}
-            />
+          {files.map((file) => (
+            <ChangedFileRow key={file.path} messageId={messageId} file={file} cwd={cwd} />
           ))}
         </div>
       )}
@@ -80,44 +83,105 @@ const ChangedFilesPanelInner: React.FC<ChangedFilesPanelProps> = ({ messageId })
   );
 };
 
-const ChangedFileRow: React.FC<{ file: ChangedFile; cwd: string; isLast: boolean }> = ({
-  file,
-  cwd,
-  isLast,
-}) => {
+const ChangedFileRow: React.FC<{
+  messageId: string;
+  file: ChangedFile;
+  cwd: string;
+}> = ({ messageId, file, cwd }) => {
+  const [open, setOpen] = useState(false);
   const isDeleted = file.status === 'D';
   const editorPath = cwd ? `${cwd}/${file.path}` : file.path;
-  const borderClass = isLast ? '' : 'border-b border-border/50 dark:border-border-dark/50';
-  const interactiveClass = isDeleted
-    ? 'cursor-default'
-    : 'transition-colors duration-150 hover:bg-surface-hover dark:hover:bg-surface-dark-hover';
+
   return (
-    <Button
-      type="button"
-      variant="unstyled"
-      disabled={isDeleted}
-      onClick={isDeleted ? undefined : () => useUIStore.getState().openFileInEditor(editorPath)}
-      className={`flex w-full items-center gap-2.5 px-3 py-2 text-left ${interactiveClass} ${borderClass}`}
-    >
-      <span
-        className={`w-3.5 flex-shrink-0 text-center font-mono text-2xs ${STATUS_COLOR[file.status]}`}
-        title={STATUS_LABEL[file.status]}
-      >
-        {file.status}
-      </span>
-      <span
-        className="min-w-0 flex-1 truncate font-mono text-xs text-text-secondary dark:text-text-dark-secondary"
-        title={file.path}
-      >
-        {file.path}
-      </span>
-      <span className="min-w-[28px] flex-shrink-0 text-right font-mono text-2xs tabular-nums text-success-600 dark:text-success-400">
-        +{file.additions}
-      </span>
-      <span className="min-w-[24px] flex-shrink-0 text-right font-mono text-2xs tabular-nums text-error-600 dark:text-error-400">
-        −{file.deletions}
-      </span>
-    </Button>
+    <Fragment>
+      <div className="flex w-full items-center gap-2 border-b border-border/50 px-3 py-2 transition-colors duration-150 last:border-b-0 hover:bg-surface-hover dark:border-border-dark/50 dark:hover:bg-surface-dark-hover">
+        <Button
+          type="button"
+          variant="unstyled"
+          onClick={() => setOpen((prev) => !prev)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          {open ? (
+            <ChevronDown className="h-3 w-3 flex-shrink-0 text-text-quaternary dark:text-text-dark-quaternary" />
+          ) : (
+            <ChevronRight className="h-3 w-3 flex-shrink-0 text-text-quaternary dark:text-text-dark-quaternary" />
+          )}
+          <span
+            className={`w-3.5 flex-shrink-0 text-center font-mono text-2xs ${STATUS_COLOR[file.status]}`}
+            title={STATUS_LABEL[file.status]}
+          >
+            {file.status}
+          </span>
+          <span
+            className="min-w-0 flex-1 truncate font-mono text-xs text-text-secondary dark:text-text-dark-secondary"
+            title={file.path}
+          >
+            {file.path}
+          </span>
+          <span className="flex-shrink-0 font-mono text-2xs tabular-nums text-success-600 dark:text-success-400">
+            +{file.additions}
+          </span>
+          <span className="flex-shrink-0 font-mono text-2xs tabular-nums text-error-600 dark:text-error-400">
+            −{file.deletions}
+          </span>
+        </Button>
+        <div className="flex flex-shrink-0 items-center gap-2">
+          <Button
+            type="button"
+            variant="unstyled"
+            onClick={() => useUIStore.getState().openInDiffView(file.path)}
+            aria-label="Open in diff view"
+            title="Open in diff view"
+            className="text-text-quaternary transition-colors duration-150 hover:text-text-primary dark:text-text-dark-quaternary dark:hover:text-text-dark-primary"
+          >
+            <GitCompareArrows className="h-3 w-3" />
+          </Button>
+          {!isDeleted && (
+            <Button
+              type="button"
+              variant="unstyled"
+              onClick={() => useUIStore.getState().openFileInEditor(editorPath)}
+              aria-label="Open in editor"
+              title="Open in editor"
+              className="text-text-quaternary transition-colors duration-150 hover:text-text-primary dark:text-text-dark-quaternary dark:hover:text-text-dark-primary"
+            >
+              <ExternalLink className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
+      </div>
+      {open && <FileDiffSection messageId={messageId} path={file.path} />}
+    </Fragment>
+  );
+};
+
+const FileDiffSection: React.FC<{
+  messageId: string;
+  path: string;
+}> = ({ messageId, path }) => {
+  const { data, isLoading, isError } = useMessageFileDiffQuery(messageId, path);
+
+  return (
+    <div className="bg-surface-primary dark:bg-surface-dark-primary border-b border-border/50 px-3 py-2 last:border-b-0 dark:border-border-dark/50">
+      {isLoading && (
+        <div className="flex items-center gap-2 text-2xs text-text-quaternary dark:text-text-dark-quaternary">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Loading diff…
+        </div>
+      )}
+      {isError && (
+        <div className="text-2xs text-error-600 dark:text-error-400">Failed to load diff</div>
+      )}
+      {data &&
+        (data.diff.trim().length > 0 ? (
+          <DiffView diff={data.diff} />
+        ) : (
+          <div className="text-2xs text-text-quaternary dark:text-text-dark-quaternary">
+            No textual diff available
+          </div>
+        ))}
+    </div>
   );
 };
 

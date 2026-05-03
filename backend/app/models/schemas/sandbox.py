@@ -114,6 +114,11 @@ class ChangedFilesResponse(BaseModel):
     cwd: str = ""
 
 
+class FileDiffResponse(BaseModel):
+    path: str
+    diff: str
+
+
 class SearchMatch(BaseModel):
     line_number: int
     line_text: str

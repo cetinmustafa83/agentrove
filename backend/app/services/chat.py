@@ -26,7 +26,11 @@ from app.models.schemas.chat import (
     ChatUpdate,
 )
 from app.models.schemas.chat import Message as MessageSchema
-from app.models.schemas.sandbox import ChangedFilesResponse, GitCommandResponse
+from app.models.schemas.sandbox import (
+    ChangedFilesResponse,
+    FileDiffResponse,
+    GitCommandResponse,
+)
 from app.models.schemas.pagination import (
     CursorPaginatedResponse,
     PaginatedResponse,
@@ -701,6 +705,22 @@ class ChatService(BaseDbService[Chat]):
             cwd=checkpoint.cwd,
         )
         return ChangedFilesResponse(files=files, cwd=checkpoint.cwd or "")
+
+    async def get_file_diff(
+        self,
+        message_id: UUID,
+        path: str,
+        user: User,
+    ) -> FileDiffResponse:
+        checkpoint, chat = await self._get_checkpoint_target(message_id, user)
+        git_service = GitService(self.sandbox_for_workspace(chat.workspace))
+        return await git_service.get_file_diff(
+            chat.workspace.sandbox_id,
+            base_head=checkpoint.base_head,
+            path=path,
+            pre_run_diff=checkpoint.pre_run_diff,
+            cwd=checkpoint.cwd,
+        )
 
     async def _get_checkpoint_target(
         self,

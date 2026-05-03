@@ -8,6 +8,8 @@ export const queryKeys = {
   messages: (chatId?: string) => ['messages', chatId] as const,
   contextUsage: (chatId?: string) => ['chat', chatId, 'context-usage'] as const,
   messageChanges: (messageId?: string) => ['message', messageId, 'changes'] as const,
+  messageFileDiff: (messageId?: string, path?: string) =>
+    ['message', messageId, 'changes', 'diff', path] as const,
   subThreads: (chatId?: string) => ['chat', chatId, 'sub-threads'] as const,
   auth: {
     user: 'auth-user',

@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from app.models.schemas.sandbox import (
     ChangedFile,
+    FileDiffResponse,
     GitBranchesResponse,
     GitCheckoutResponse,
     GitCommandResponse,
@@ -84,7 +85,10 @@ GIT_WORKTREE_ADD_TEMPLATE = Template(
 # untracked files into the comparison, so pre-existing untracked files stay
 # silent and assistant-created files surface as additions.
 # `--no-renames` collapses renames to add+delete so the parser stays simple.
-GIT_CHANGED_FILES_TEMPLATE = Template(
+# Builds `base_tree` (HEAD-or-`$base` with optional `$patch_file` applied) and
+# `cur_tree` (current working tree staged via temp index) so callers can diff
+# them with `git diff "$base_tree" "$cur_tree"`. Closes with `}` in the caller.
+GIT_BUILD_TREES_PREFIX = (
     "{ base_tree='$base'; "
     'if [ -n "$patch_file" ]; then '
     "tmp_b=$$(mktemp); "
@@ -101,9 +105,24 @@ GIT_CHANGED_FILES_TEMPLATE = Template(
     'GIT_INDEX_FILE="$$tmp_c" git add -A 2>/dev/null; '
     'cur_tree=$$(GIT_INDEX_FILE="$$tmp_c" git write-tree 2>/dev/null); '
     'rm -f "$$tmp_c"; '
-    'git diff --numstat --no-renames "$$base_tree" "$$cur_tree" 2>/dev/null; '
+)
+
+GIT_CHANGED_FILES_TEMPLATE = Template(
+    GIT_BUILD_TREES_PREFIX + "git diff --numstat --no-renames "
+    '"$$base_tree" "$$cur_tree" -- . '
+    "':(exclude).agentrove-changed-*.patch' "
+    "':(exclude,glob)**/.agentrove-changed-*.patch' 2>/dev/null; "
     "printf '__STATUS__\\n'; "
-    'git diff --name-status --no-renames "$$base_tree" "$$cur_tree" 2>/dev/null; '
+    "git diff --name-status --no-renames "
+    '"$$base_tree" "$$cur_tree" -- . '
+    "':(exclude).agentrove-changed-*.patch' "
+    "':(exclude,glob)**/.agentrove-changed-*.patch' 2>/dev/null; "
+    "}"
+)
+
+GIT_FILE_DIFF_TEMPLATE = Template(
+    GIT_BUILD_TREES_PREFIX + "git diff --no-renames "
+    '"$$base_tree" "$$cur_tree" -- $path 2>/dev/null; '
     "}"
 )
 
@@ -444,16 +463,9 @@ class GitService:
     ) -> GitCommandResponse:
         if not re.fullmatch(r"[0-9a-fA-F]{40}", base_head):
             raise ValueError("Invalid checkpoint commit")
-        patch_file = ""
-        if pre_run_diff:
-            name = f".agentrove-checkpoint-{uuid4().hex}.patch"
-            patch_path = posixpath.join(cwd, name) if cwd else name
-            await self.sandbox_service.provider.write_file(
-                sandbox_id, patch_path, pre_run_diff
-            )
-            patch_file = shlex.quote(
-                self.sandbox_service.provider.resolve_workspace_path(patch_path)
-            )
+        patch_file = await self._write_patch_file(
+            sandbox_id, pre_run_diff, cwd, ".agentrove-checkpoint-"
+        )
         cmd = GIT_RESTORE_CHECKPOINT_ALL_TEMPLATE.substitute(
             base_head=base_head,
             patch_file=patch_file,
@@ -469,16 +481,9 @@ class GitService:
     ) -> list[ChangedFile]:
         if not re.fullmatch(r"[0-9a-fA-F]{40}", base_head):
             raise ValueError("Invalid checkpoint commit")
-        patch_file = ""
-        if pre_run_diff:
-            name = f".agentrove-changed-{uuid4().hex}.patch"
-            patch_path = posixpath.join(cwd, name) if cwd else name
-            await self.sandbox_service.provider.write_file(
-                sandbox_id, patch_path, pre_run_diff
-            )
-            patch_file = shlex.quote(
-                self.sandbox_service.provider.resolve_workspace_path(patch_path)
-            )
+        patch_file = await self._write_patch_file(
+            sandbox_id, pre_run_diff, cwd, ".agentrove-changed-"
+        )
         cd_prefix = git_cd_prefix(cwd)
         cmd = GIT_CHANGED_FILES_TEMPLATE.substitute(
             base=base_head, patch_file=patch_file
@@ -489,6 +494,51 @@ class GitService:
         if result.exit_code != 0:
             return []
         return self._parse_changed_files(result.stdout)
+
+    async def get_file_diff(
+        self,
+        sandbox_id: str,
+        base_head: str,
+        path: str,
+        pre_run_diff: str = "",
+        cwd: str | None = None,
+    ) -> FileDiffResponse:
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", base_head):
+            raise ValueError("Invalid checkpoint commit")
+        self._validate_relative_path(path)
+        patch_file = await self._write_patch_file(
+            sandbox_id, pre_run_diff, cwd, ".agentrove-changed-"
+        )
+        cd_prefix = git_cd_prefix(cwd)
+        cmd = GIT_FILE_DIFF_TEMPLATE.substitute(
+            base=base_head,
+            patch_file=patch_file,
+            path=shlex.quote(path),
+        )
+        result = await self.sandbox_service.execute_command(
+            sandbox_id, f"{cd_prefix}{cmd}"
+        )
+        return FileDiffResponse(
+            path=path, diff=result.stdout if result.exit_code == 0 else ""
+        )
+
+    async def _write_patch_file(
+        self,
+        sandbox_id: str,
+        pre_run_diff: str,
+        cwd: str | None,
+        name_prefix: str,
+    ) -> str:
+        if not pre_run_diff:
+            return ""
+        name = f"{name_prefix}{uuid4().hex}.patch"
+        patch_path = posixpath.join(cwd, name) if cwd else name
+        await self.sandbox_service.provider.write_file(
+            sandbox_id, patch_path, pre_run_diff
+        )
+        return shlex.quote(
+            self.sandbox_service.provider.resolve_workspace_path(patch_path)
+        )
 
     @staticmethod
     def _parse_changed_files(output: str) -> list[ChangedFile]:
