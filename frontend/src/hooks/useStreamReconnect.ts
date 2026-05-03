@@ -131,6 +131,7 @@ export function useStreamReconnect({
             created_at: new Date().toISOString(),
             model_id: selectedModelIdRef.current || '',
             is_bot: true,
+            checkpoint_id: null,
           };
           addMessageToCache(placeholderMessage);
           setMessages((prev) => [...prev, placeholderMessage]);

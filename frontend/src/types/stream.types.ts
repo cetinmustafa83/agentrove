@@ -30,6 +30,7 @@ export interface QueueProcessingData {
   queuedMessageId: string;
   userMessageId: string;
   assistantMessageId: string;
+  checkpointId: string | null;
   content: string;
   modelId: string;
   attachments?: MessageAttachment[];
@@ -38,6 +39,7 @@ export interface QueueProcessingData {
 export interface ApiStreamResponse {
   source: EventSource;
   messageId: string;
+  checkpointId: string | null;
 }
 
 export interface ActiveStream {

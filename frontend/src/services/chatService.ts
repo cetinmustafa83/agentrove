@@ -10,6 +10,7 @@ import type {
   CreateChatRequest,
   ContextUsage,
 } from '@/types/chat.types';
+import type { GitCommitResult } from '@/types/sandbox.types';
 import type { CursorPaginationParams, PaginatedChats, PaginatedMessages } from '@/types/api.types';
 
 async function createCompletion(
@@ -50,6 +51,7 @@ async function createCompletion(
         chat_id: string;
         message_id: string;
         last_seq?: number;
+        checkpoint_id: string | null;
       }>('/chat/chat', formData, signal);
 
       const payload = ensureResponse(taskResponse, 'Failed to start chat completion');
@@ -58,6 +60,7 @@ async function createCompletion(
       return {
         source: eventSource,
         messageId: payload.message_id,
+        checkpointId: payload.checkpoint_id,
       };
     },
     { signal },
@@ -280,6 +283,17 @@ async function enhancePrompt(prompt: string, modelId: string): Promise<string> {
   });
 }
 
+async function restoreMessageCheckpoint(messageId: string): Promise<GitCommitResult> {
+  validateId(messageId, 'Message ID');
+
+  return serviceCall(async () => {
+    const response = await apiClient.post<GitCommitResult>(
+      `/chat/messages/${messageId}/checkpoint/restore-all`,
+    );
+    return ensureResponse(response, 'Failed to restore checkpoint');
+  });
+}
+
 export const chatService = {
   createCompletion,
   checkChatStatus,
@@ -295,6 +309,7 @@ export const chatService = {
   deleteAllChats,
   getContextUsage,
   enhancePrompt,
+  restoreMessageCheckpoint,
   pinChat,
   unpinChat,
   getSubThreads,

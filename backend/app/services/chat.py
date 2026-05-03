@@ -4,14 +4,15 @@ import logging
 import math
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import exists, func, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import aliased, selectinload
 
 from app.constants import MODELS, REDIS_KEY_CHAT_STREAM_LIVE
-from app.models.db_models.chat import Chat, Message
+from app.models.db_models.chat import Chat, ChatCheckpoint, Message
 from app.models.db_models.enums import MessageRole, MessageStreamStatus, StreamEventKind
 from app.models.db_models.user import User
 from app.models.db_models.workspace import Workspace
@@ -25,6 +26,7 @@ from app.models.schemas.chat import (
     ChatUpdate,
 )
 from app.models.schemas.chat import Message as MessageSchema
+from app.models.schemas.sandbox import GitCommandResponse
 from app.models.schemas.pagination import (
     CursorPaginatedResponse,
     PaginatedResponse,
@@ -32,8 +34,10 @@ from app.models.schemas.pagination import (
 )
 from app.models.types import ChatCompletionResult, MessageAttachmentDict, PermissionMode
 from app.prompts.system_prompt import DEFAULT_PERSONA_NAME, build_system_prompt_for_chat
+from app.services.agent import AgentService
 from app.services.db import BaseDbService, SessionFactoryType
-from app.services.exceptions import ChatException, ErrorCode
+from app.services.exceptions import ChatException, ErrorCode, SandboxException
+from app.services.git import GitService
 from app.services.message import MessageService
 from app.services.sandbox import SandboxService
 from app.services.sandbox_providers.base import SandboxProvider
@@ -622,6 +626,94 @@ class ChatService(BaseDbService[Chat]):
 
         return await self.message_service.get_chat_messages(chat_id, cursor, limit)
 
+    @staticmethod
+    async def create_checkpoint_for_message(
+        chat: Chat,
+        assistant_message_id: UUID,
+        session_factory: SessionFactoryType,
+        worktree: bool,
+    ) -> UUID | None:
+        # Best-effort: a non-git workspace must not block the agent run.
+        sandbox_id = chat.sandbox_id
+        if not sandbox_id:
+            return None
+
+        try:
+            if worktree:
+                await AgentService(session_factory=session_factory).ensure_worktree_cwd(
+                    chat
+                )
+            cwd = chat.worktree_cwd if worktree else ""
+            provider = SandboxProvider.create_provider(
+                chat.sandbox_provider, workspace_path=chat.workspace_path
+            )
+            checkpoint = await GitService(SandboxService(provider)).create_checkpoint(
+                sandbox_id, cwd
+            )
+            if checkpoint is None:
+                return None
+
+            async with session_factory() as db:
+                checkpoint_row = ChatCheckpoint(
+                    chat_id=chat.id,
+                    assistant_message_id=assistant_message_id,
+                    cwd=cwd,
+                    base_head=checkpoint.base_head,
+                    pre_run_diff=checkpoint.pre_run_diff,
+                )
+                db.add(checkpoint_row)
+                await db.commit()
+                await db.refresh(checkpoint_row)
+                return cast(UUID, checkpoint_row.id)
+        except (SandboxException, SQLAlchemyError, TimeoutError, ValueError) as exc:
+            logger.warning(
+                "Failed to create checkpoint for message %s: %s",
+                assistant_message_id,
+                exc,
+            )
+            return None
+
+    async def restore_checkpoint_all(
+        self,
+        message_id: UUID,
+        user: User,
+    ) -> GitCommandResponse:
+        checkpoint, chat = await self._get_checkpoint_target(message_id, user)
+        git_service = GitService(self.sandbox_for_workspace(chat.workspace))
+        return await git_service.restore_checkpoint_all(
+            chat.workspace.sandbox_id,
+            base_head=checkpoint.base_head,
+            pre_run_diff=checkpoint.pre_run_diff,
+            cwd=checkpoint.cwd,
+        )
+
+    async def _get_checkpoint_target(
+        self,
+        message_id: UUID,
+        user: User,
+    ) -> tuple[ChatCheckpoint, Chat]:
+        async with self.session_factory() as db:
+            result = await db.execute(
+                select(ChatCheckpoint, Chat)
+                .join(Chat, Chat.id == ChatCheckpoint.chat_id)
+                .options(selectinload(Chat.workspace))
+                .where(
+                    ChatCheckpoint.assistant_message_id == message_id,
+                    Chat.user_id == user.id,
+                    Chat.deleted_at.is_(None),
+                )
+            )
+            row = result.one_or_none()
+            if row is None:
+                raise ChatException(
+                    "Checkpoint not found",
+                    error_code=ErrorCode.MESSAGE_NOT_FOUND,
+                    details={"message_id": str(message_id)},
+                    status_code=404,
+                )
+            checkpoint, chat = row
+            return checkpoint, chat
+
     async def _replay_stream_backlog(
         self,
         chat_id: UUID,
@@ -938,6 +1030,13 @@ class ChatService(BaseDbService[Chat]):
             stream_status=MessageStreamStatus.IN_PROGRESS,
         )
 
+        checkpoint_id = await self.create_checkpoint_for_message(
+            chat,
+            assistant_message.id,
+            self._session_factory,
+            request.worktree,
+        )
+
         model = MODELS[request.model_id]
         system_prompt = build_system_prompt_for_chat(
             user_settings,
@@ -970,6 +1069,7 @@ class ChatService(BaseDbService[Chat]):
             "message_id": str(assistant_message.id),
             "chat_id": str(chat_id),
             "last_seq": chat.last_event_seq,
+            "checkpoint_id": str(checkpoint_id) if checkpoint_id else None,
         }
 
     async def _enqueue_chat_task(

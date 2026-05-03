@@ -193,7 +193,10 @@ interface UseStreamCallbacksResult {
   ) => void;
   onError: (error: Error, messageId?: string, streamId?: string) => void;
   onQueueProcess: (data: QueueProcessingData) => void;
-  startStream: (request: StreamOptions['request'], signal?: AbortSignal) => Promise<string>;
+  startStream: (
+    request: StreamOptions['request'],
+    signal?: AbortSignal,
+  ) => Promise<{ messageId: string; checkpointId: string | null }>;
   replayStream: (messageId: string, afterSeq?: number) => Promise<string>;
   stopStream: (messageId: string) => Promise<void>;
   updateMessageInCache: ReturnType<typeof useMessageCache>['updateMessageInCache'];
@@ -729,6 +732,7 @@ export function useStreamCallbacks({
         created_at: new Date().toISOString(),
         attachments: data.attachments || [],
         is_bot: false,
+        checkpoint_id: null,
       };
 
       const assistantMessage: Message = {
@@ -744,6 +748,7 @@ export function useStreamCallbacks({
         model_id: data.modelId,
         attachments: [],
         is_bot: true,
+        checkpoint_id: data.checkpointId,
       };
 
       // Cache updates must run even for off-screen chats so returning
@@ -793,7 +798,10 @@ export function useStreamCallbacks({
   }, [chatId, onEnvelope, onComplete, onError, onQueueProcess]);
 
   const startStream = useCallback(
-    async (request: StreamOptions['request'], signal?: AbortSignal): Promise<string> => {
+    async (
+      request: StreamOptions['request'],
+      signal?: AbortSignal,
+    ): Promise<{ messageId: string; checkpointId: string | null }> => {
       const currentOptions = optionsRef.current;
       if (!currentOptions) {
         throw new Error('Stream options not available');

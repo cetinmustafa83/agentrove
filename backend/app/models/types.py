@@ -45,6 +45,7 @@ class ChatCompletionResult(TypedDict):
     message_id: str
     chat_id: str
     last_seq: int
+    checkpoint_id: str | None
 
 
 class YamlMetadata(TypedDict, total=False):

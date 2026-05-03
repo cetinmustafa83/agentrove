@@ -511,6 +511,15 @@ class ChatStreamRuntime:
                 model_id=next_msg["model_id"],
                 stream_status=MessageStreamStatus.IN_PROGRESS,
             )
+            # Inline import to avoid circular dependency with chat.py.
+            from app.services.chat import ChatService
+
+            checkpoint_id = await ChatService.create_checkpoint_for_message(
+                self.chat,
+                assistant_message.id,
+                self.session_factory,
+                next_msg["worktree"],
+            )
 
             await self.emit_event(
                 "queue_processing",
@@ -518,6 +527,7 @@ class ChatStreamRuntime:
                     "queued_message_id": next_msg["id"],
                     "user_message_id": str(user_message.id),
                     "assistant_message_id": str(assistant_message.id),
+                    "checkpoint_id": str(checkpoint_id) if checkpoint_id else None,
                     "content": next_msg["content"],
                     "model_id": next_msg["model_id"],
                     "attachments": MessageService.serialize_attachments(
@@ -833,6 +843,16 @@ class ChatStreamRuntime:
                 chat = result.scalar_one_or_none()
                 if not chat:
                     raise AgentException(f"Chat {chat_id} not found for idle send-now")
+
+            # Inline import to avoid circular dependency with chat.py.
+            from app.services.chat import ChatService
+
+            await ChatService.create_checkpoint_for_message(
+                chat,
+                assistant_message.id,
+                session_factory,
+                queued_msg["worktree"],
+            )
 
             user_service = UserService(session_factory=session_factory)
             user_settings = await user_service.get_user_settings(chat.user_id, db=None)

@@ -31,7 +31,10 @@ interface UseMessageActionsParams {
   setWasAborted: (aborted: boolean) => void;
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   addMessageToCache: (message: Message, userMessage?: Message) => void;
-  startStream: (request: ChatRequest, signal?: AbortSignal) => Promise<string>;
+  startStream: (
+    request: ChatRequest,
+    signal?: AbortSignal,
+  ) => Promise<{ messageId: string; checkpointId: string | null }>;
   storeBlobUrl: (file: File, url: string) => void;
   setPendingUserMessageId: (id: string | null) => void;
   isLoading: boolean;
@@ -123,7 +126,7 @@ export function useMessageActions({
           selected_persona_name: validPersona,
         };
 
-        const messageId = await startStream(request, startController.signal);
+        const { messageId, checkpointId } = await startStream(request, startController.signal);
         pendingStartControllerRef.current = null;
 
         setCurrentMessageId(messageId);
@@ -142,6 +145,7 @@ export function useMessageActions({
           attachments: [],
           created_at: new Date().toISOString(),
           model_id: selectedModelId ?? undefined,
+          checkpoint_id: checkpointId,
         };
 
         // Replace a trailing empty placeholder if present, otherwise append.
@@ -232,6 +236,7 @@ export function useMessageActions({
         model_id: selectedModelId,
         created_at: new Date().toISOString(),
         attachments: createAttachmentsFromFiles(inputFiles, storeBlobUrl) ?? [],
+        checkpoint_id: null,
       };
 
       setMessages((prev) => [...prev, newMessage]);

@@ -1,7 +1,12 @@
 import { useStreamStore } from '@/store/streamStore';
 import { useMessageQueueStore } from '@/store/messageQueueStore';
 import type { ChatRequest } from '@/types/chat.types';
-import type { ActiveStream, QueueProcessingData, StreamEnvelope } from '@/types/stream.types';
+import type {
+  ActiveStream,
+  ApiStreamResponse,
+  QueueProcessingData,
+  StreamEnvelope,
+} from '@/types/stream.types';
 import { StreamProcessingError } from '@/types/stream.types';
 import { chatService } from '@/services/chatService';
 import { logger } from '@/utils/logger';
@@ -113,6 +118,7 @@ class StreamService {
       queued_message_id?: string;
       user_message_id?: string;
       assistant_message_id?: string;
+      checkpoint_id?: string | null;
       content?: string;
       model_id: string;
       attachments?: Array<{
@@ -141,6 +147,7 @@ class StreamService {
         queuedMessageId: payload.queued_message_id,
         userMessageId: payload.user_message_id,
         assistantMessageId: payload.assistant_message_id,
+        checkpointId: payload.checkpoint_id ?? null,
         content: payload.content,
         modelId: payload.model_id,
         attachments: payload.attachments,
@@ -242,11 +249,13 @@ class StreamService {
     };
   }
 
-  async startStream(options: StreamOptions): Promise<string> {
+  async startStream(
+    options: StreamOptions,
+  ): Promise<Pick<ApiStreamResponse, 'messageId' | 'checkpointId'>> {
     const streamId = crypto.randomUUID();
 
     try {
-      const { source, messageId } = await chatService.createCompletion(
+      const { source, messageId, checkpointId } = await chatService.createCompletion(
         options.request,
         options.signal,
       );
@@ -270,7 +279,7 @@ class StreamService {
       this.store.addStream(activeStream);
       this.attachStreamHandlers(streamId, messageId);
 
-      return messageId;
+      return { messageId, checkpointId };
     } catch (error) {
       this.store.removeStream(streamId);
       throw error;

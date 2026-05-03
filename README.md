@@ -8,7 +8,7 @@ Self-hosted AI coding workspace for Claude Code, Codex, Copilot, Cursor, and Ope
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 [![Discord](https://img.shields.io/badge/Discord-5865F2.svg?logo=discord&logoColor=white)](https://discord.gg/HvkJU8dcBA)
 
-> **Note:** Agentrove is under active development. Expect breaking changes between releases.
+> **Note:** Agentrove is under active development. Expect breaking changes between releases, and review release notes before upgrading.
 
 ## Screenshots
 

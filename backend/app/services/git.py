@@ -2,7 +2,8 @@ import posixpath
 import re
 import shlex
 from string import Template
-from typing import Literal
+from typing import Literal, NamedTuple
+from uuid import uuid4
 
 from app.models.schemas.sandbox import (
     GitBranchesResponse,
@@ -16,12 +17,24 @@ from app.services.exceptions import SandboxException
 from app.services.sandbox import SandboxService
 from app.utils.sandbox import BRANCH_NAME_RE, git_cd_prefix
 
+
+class Checkpoint(NamedTuple):
+    base_head: str
+    pre_run_diff: str
+
+
 GITHUB_REMOTE_RE = re.compile(
     r"(?:https?://github\.com/|git@github\.com:)([^/]+)/([^/]+?)(?:\.git)?$"
 )
 
 GIT_IS_REPO_CMD = "git rev-parse --is-inside-work-tree 2>/dev/null"
 GIT_CURRENT_BRANCH_CMD = "git rev-parse --abbrev-ref HEAD 2>/dev/null"
+# One round-trip so a clean tree (the common case) avoids the diff capture.
+GIT_CHECKPOINT_PROBE_CMD = (
+    "git rev-parse HEAD 2>/dev/null && "
+    '(test -z "$(git status --porcelain 2>/dev/null)" '
+    "&& echo clean || echo dirty)"
+)
 GIT_PUSH_CMD = "git push -u origin HEAD"
 GIT_PULL_CMD = "git pull"
 GIT_REMOTE_URL_CMD = "git remote get-url origin 2>/dev/null"
@@ -72,9 +85,20 @@ GIT_DIFF_ALL_TEMPLATE = Template(
     " || { git diff$ctx --cached 2>/dev/null; git diff$ctx 2>/dev/null; }; };"
     "$untracked"
 )
+GIT_CHECKPOINT_DIFF_ALL_TEMPLATE = Template(
+    "{ git diff --binary -U99999 HEAD 2>/dev/null"
+    " || { git diff --binary -U99999 --cached 2>/dev/null; "
+    "git diff --binary -U99999 2>/dev/null; }; };"
+    "$untracked"
+)
 GIT_UNTRACKED_DIFF_TEMPLATE = Template(
     " git ls-files --others --exclude-standard -z"
     " | xargs -0 -I{} git diff$ctx --no-index -- /dev/null {} 2>/dev/null"
+)
+GIT_CHECKPOINT_UNTRACKED_DIFF_TEMPLATE = (
+    " git ls-files --others --exclude-standard -z"
+    " | xargs -0 -I{} "
+    "git diff --binary -U99999 --no-index -- /dev/null {} 2>/dev/null"
 )
 # Diff HEAD against the merge-base with the default branch. Default branch is
 # detected via the remote HEAD symref, falling back to main/master/develop/
@@ -126,6 +150,22 @@ RESTORE_FILE_TEMPLATE = Template(
     "git reset -- $fp >/dev/null 2>&1; "
     "rm -f -- $fp; "
     "fi"
+)
+
+GIT_RESTORE_CHECKPOINT_ALL_TEMPLATE = Template(
+    "tmp=''; "
+    'if [ -n "$patch_file" ]; then '
+    'tmp=$$(mktemp) && cp $patch_file "$$tmp"; '
+    "status=$$?; rm -f $patch_file; "
+    'if [ $$status -ne 0 ]; then rm -f "$$tmp"; exit $$status; fi; '
+    'fi; cd "$$(git rev-parse --show-toplevel)" && '
+    "git reset --hard '$base_head' >/dev/null 2>&1; "
+    "status=$$?; "
+    "if [ $$status -eq 0 ]; then git clean -fd >/dev/null 2>&1; status=$$?; fi; "
+    'if [ $$status -eq 0 ] && [ -n "$$tmp" ]; then '
+    'git apply --whitespace=nowarn "$$tmp" 2>&1; status=$$?; '
+    "fi; "
+    'rm -f "$$tmp"; exit $$status'
 )
 
 
@@ -330,6 +370,63 @@ class GitService:
         cwd: str | None = None,
     ) -> GitCommandResponse:
         return await self.run_command(sandbox_id, RESTORE_ALL_CMD, cwd)
+
+    async def create_checkpoint(
+        self,
+        sandbox_id: str,
+        cwd: str | None = None,
+    ) -> Checkpoint | None:
+        # Single probe avoids a separate diff round-trip when the tree is clean
+        # — the common case for the first turn of a fresh chat.
+        cd_prefix = git_cd_prefix(cwd)
+        probe = await self.sandbox_service.execute_command(
+            sandbox_id,
+            f"{cd_prefix}{GIT_CHECKPOINT_PROBE_CMD}",
+        )
+        if probe.exit_code != 0:
+            return None
+        lines = probe.stdout.splitlines()
+        head = lines[0].strip() if lines else ""
+        marker = lines[1].strip() if len(lines) > 1 else ""
+        if not head:
+            return None
+        if marker == "clean":
+            return Checkpoint(base_head=head, pre_run_diff="")
+
+        cmd = GIT_CHECKPOINT_DIFF_ALL_TEMPLATE.substitute(
+            untracked=GIT_CHECKPOINT_UNTRACKED_DIFF_TEMPLATE
+        )
+        result = await self.sandbox_service.execute_command(
+            sandbox_id,
+            f"{cd_prefix}{cmd}",
+        )
+        return Checkpoint(base_head=head, pre_run_diff=result.stdout)
+
+    async def restore_checkpoint_all(
+        self,
+        sandbox_id: str,
+        *,
+        base_head: str,
+        pre_run_diff: str,
+        cwd: str | None = None,
+    ) -> GitCommandResponse:
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", base_head):
+            raise ValueError("Invalid checkpoint commit")
+        patch_file = ""
+        if pre_run_diff:
+            name = f".agentrove-checkpoint-{uuid4().hex}.patch"
+            patch_path = posixpath.join(cwd, name) if cwd else name
+            await self.sandbox_service.provider.write_file(
+                sandbox_id, patch_path, pre_run_diff
+            )
+            patch_file = shlex.quote(
+                self.sandbox_service.provider.resolve_workspace_path(patch_path)
+            )
+        cmd = GIT_RESTORE_CHECKPOINT_ALL_TEMPLATE.substitute(
+            base_head=base_head,
+            patch_file=patch_file,
+        )
+        return await self.run_command(sandbox_id, cmd, cwd)
 
     async def create_branch(
         self,

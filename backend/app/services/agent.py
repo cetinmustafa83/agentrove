@@ -71,6 +71,28 @@ class AgentService:
         except (SQLAlchemyError, ValueError) as exc:
             logger.error("Failed to persist worktree_cwd for chat %s: %s", chat_id, exc)
 
+    async def ensure_worktree_cwd(self, chat: Chat) -> str:
+        if chat.worktree_cwd:
+            return cast(str, chat.worktree_cwd)
+
+        sandbox_id = chat.sandbox_id
+        if not sandbox_id:
+            return ""
+
+        provider = SandboxProvider.create_provider(
+            SandboxProviderType(chat.sandbox_provider),
+            workspace_path=chat.workspace_path,
+        )
+        git_service = GitService(SandboxService(provider))
+        worktree_cwd = await git_service.create_worktree(
+            sandbox_id,
+            "",
+            str(chat.id),
+        )
+        chat.worktree_cwd = worktree_cwd
+        await self._save_worktree_cwd(chat.id, worktree_cwd)
+        return worktree_cwd
+
     async def build_session_config(
         self,
         *,
@@ -102,23 +124,7 @@ class AgentService:
             )
 
         if worktree and sandbox_id:
-            if chat.worktree_cwd:
-                # Reuse the already-persisted worktree path from a prior turn.
-                cwd = chat.worktree_cwd
-            else:
-                provider = SandboxProvider.create_provider(
-                    sandbox_provider,
-                    workspace_path=workspace_path,
-                )
-                git_service = GitService(SandboxService(provider))
-                worktree_cwd = await git_service.create_worktree(
-                    sandbox_id,
-                    cwd,
-                    str(chat.id),
-                )
-                cwd = worktree_cwd
-                chat.worktree_cwd = worktree_cwd
-                await self._save_worktree_cwd(chat.id, worktree_cwd)
+            cwd = await self.ensure_worktree_cwd(chat)
 
         is_custom_persona = selected_persona_name != DEFAULT_PERSONA_NAME
 

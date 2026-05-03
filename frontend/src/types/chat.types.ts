@@ -25,6 +25,7 @@ export interface Message {
   model_id: string | null;
   attachments: MessageAttachment[];
   created_at: string;
+  checkpoint_id: string | null;
 }
 
 export type AssistantStreamEvent =
