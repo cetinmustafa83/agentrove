@@ -513,8 +513,12 @@ class GitService:
                 continue
             code, path = parts[0], parts[1]
             letter = code[:1]
-            if letter == "M" or letter == "A" or letter == "D":
-                statuses[path] = letter
+            if letter == "M":
+                statuses[path] = "M"
+            elif letter == "A":
+                statuses[path] = "A"
+            elif letter == "D":
+                statuses[path] = "D"
 
         files = [
             ChangedFile(
