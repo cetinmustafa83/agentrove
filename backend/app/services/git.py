@@ -513,7 +513,7 @@ class GitService:
                 continue
             code, path = parts[0], parts[1]
             letter = code[:1]
-            if letter in {"M", "A", "D"}:
+            if letter == "M" or letter == "A" or letter == "D":
                 statuses[path] = letter
 
         files = [
