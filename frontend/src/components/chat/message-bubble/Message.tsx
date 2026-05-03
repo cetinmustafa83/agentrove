@@ -2,6 +2,7 @@ import { memo, useMemo, useState } from 'react';
 import { Undo2 } from 'lucide-react';
 import { UserMessageContent, AssistantMessageContent } from './MessageContent';
 import { MessageActions } from './MessageActions';
+import { ChangedFilesPanel } from './ChangedFilesPanel';
 import { useModelMap } from '@/hooks/queries/useModelQueries';
 import {
   getAgentKindForModelId,
@@ -130,6 +131,8 @@ export const AssistantMessage = memo(function AssistantMessage({
               agentKind={agentKind}
             />
           </div>
+
+          {checkpointId && !isStreaming && <ChangedFilesPanel messageId={id} />}
 
           {showFooter && (
             <div className="mt-2 flex items-center justify-between">

@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { chatService } from '@/services/chatService';
 import { invalidateAfterGitRestore } from '@/hooks/queries/useSandboxQueries';
+import { queryKeys } from '@/hooks/queries/queryKeys';
 
 export function useCheckpointRestore(messageId: string, sandboxId?: string) {
   const queryClient = useQueryClient();
@@ -14,6 +15,7 @@ export function useCheckpointRestore(messageId: string, sandboxId?: string) {
         return;
       }
       toast.success('Workspace restored to before this run');
+      await queryClient.invalidateQueries({ queryKey: queryKeys.messageChanges(messageId) });
       if (sandboxId) {
         await invalidateAfterGitRestore(queryClient, sandboxId);
       }

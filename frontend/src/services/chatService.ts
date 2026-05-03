@@ -10,7 +10,7 @@ import type {
   CreateChatRequest,
   ContextUsage,
 } from '@/types/chat.types';
-import type { GitCommitResult } from '@/types/sandbox.types';
+import type { ChangedFilesData, GitCommitResult } from '@/types/sandbox.types';
 import type { CursorPaginationParams, PaginatedChats, PaginatedMessages } from '@/types/api.types';
 
 async function createCompletion(
@@ -283,6 +283,15 @@ async function enhancePrompt(prompt: string, modelId: string): Promise<string> {
   });
 }
 
+async function getMessageChanges(messageId: string): Promise<ChangedFilesData> {
+  validateId(messageId, 'Message ID');
+
+  return serviceCall(async () => {
+    const response = await apiClient.get<ChangedFilesData>(`/chat/messages/${messageId}/changes`);
+    return ensureResponse(response, 'Failed to load changed files');
+  });
+}
+
 async function restoreMessageCheckpoint(messageId: string): Promise<GitCommitResult> {
   validateId(messageId, 'Message ID');
 
@@ -309,6 +318,7 @@ export const chatService = {
   deleteAllChats,
   getContextUsage,
   enhancePrompt,
+  getMessageChanges,
   restoreMessageCheckpoint,
   pinChat,
   unpinChat,
