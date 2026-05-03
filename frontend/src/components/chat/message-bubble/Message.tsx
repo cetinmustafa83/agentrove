@@ -112,6 +112,8 @@ export const AssistantMessage = memo(function AssistantMessage({
   // message, so tool renderers can handle per-agent rawInput shape variations
   // (e.g. Copilot's apply_patch vs. Codex's structured changes).
   const agentKind = modelId ? getAgentKindForModelId(modelId) : undefined;
+  const hasContentText = contentText.trim().length > 0;
+  const showFooter = (hasContentText || checkpointId != null) && !isStreaming;
 
   return (
     <div className="group px-4 py-1.5 sm:px-6 sm:py-2">
@@ -129,33 +131,22 @@ export const AssistantMessage = memo(function AssistantMessage({
             />
           </div>
 
-          {contentText.trim() && !isStreaming && (
+          {showFooter && (
             <div className="mt-2 flex items-center justify-between">
               <div className="flex items-center gap-0.5">
-                <MessageActions messageId={id} contentText={contentText} />
+                {hasContentText && <MessageActions messageId={id} contentText={contentText} />}
                 {checkpointId && (
-                  <>
-                    <Tooltip content="Restore to before this run" position="bottom">
-                      <Button
-                        onClick={() => setRestoreOpen(true)}
-                        variant="unstyled"
-                        disabled={isRestoring}
-                        className="rounded-md p-1 text-text-quaternary transition-colors duration-200 hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50 dark:text-text-dark-quaternary dark:hover:bg-surface-dark-hover dark:hover:text-text-dark-primary"
-                      >
-                        <Undo2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </Tooltip>
-                    {restoreOpen && (
-                      <ConfirmDialog
-                        isOpen
-                        onClose={() => setRestoreOpen(false)}
-                        onConfirm={() => restore()}
-                        title="Restore to before this run?"
-                        message="The workspace will be reset to the checkpoint captured before this assistant run. Changes made by the run will be discarded."
-                        confirmLabel="Restore"
-                      />
-                    )}
-                  </>
+                  <Tooltip content="Restore to before this run" position="bottom">
+                    <Button
+                      onClick={() => setRestoreOpen(true)}
+                      variant="unstyled"
+                      disabled={isRestoring}
+                      aria-label="Restore to before this run"
+                      className="rounded-md p-1 text-text-quaternary transition-colors duration-200 hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50 dark:text-text-dark-quaternary dark:hover:bg-surface-dark-hover dark:hover:text-text-dark-primary"
+                    >
+                      <Undo2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </Tooltip>
                 )}
               </div>
 
@@ -172,6 +163,16 @@ export const AssistantMessage = memo(function AssistantMessage({
           )}
         </div>
       </div>
+      {restoreOpen && (
+        <ConfirmDialog
+          isOpen
+          onClose={() => setRestoreOpen(false)}
+          onConfirm={() => restore()}
+          title="Restore to before this run?"
+          message="The workspace will be reset to the checkpoint captured before this assistant run. Changes made by the run will be discarded."
+          confirmLabel="Restore"
+        />
+      )}
     </div>
   );
 });

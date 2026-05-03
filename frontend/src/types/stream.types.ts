@@ -30,6 +30,7 @@ export interface QueueProcessingData {
   queuedMessageId: string;
   userMessageId: string;
   assistantMessageId: string;
+  checkpointId: string | null;
   content: string;
   modelId: string;
   attachments?: MessageAttachment[];

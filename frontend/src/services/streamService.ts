@@ -118,6 +118,7 @@ class StreamService {
       queued_message_id?: string;
       user_message_id?: string;
       assistant_message_id?: string;
+      checkpoint_id?: string | null;
       content?: string;
       model_id: string;
       attachments?: Array<{
@@ -146,6 +147,7 @@ class StreamService {
         queuedMessageId: payload.queued_message_id,
         userMessageId: payload.user_message_id,
         assistantMessageId: payload.assistant_message_id,
+        checkpointId: payload.checkpoint_id ?? null,
         content: payload.content,
         modelId: payload.model_id,
         attachments: payload.attachments,

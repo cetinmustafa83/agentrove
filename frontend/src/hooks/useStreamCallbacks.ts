@@ -193,7 +193,10 @@ interface UseStreamCallbacksResult {
   ) => void;
   onError: (error: Error, messageId?: string, streamId?: string) => void;
   onQueueProcess: (data: QueueProcessingData) => void;
-  startStream: (request: StreamOptions['request'], signal?: AbortSignal) => Promise<string>;
+  startStream: (
+    request: StreamOptions['request'],
+    signal?: AbortSignal,
+  ) => Promise<{ messageId: string; checkpointId: string | null }>;
   replayStream: (messageId: string, afterSeq?: number) => Promise<string>;
   stopStream: (messageId: string) => Promise<void>;
   updateMessageInCache: ReturnType<typeof useMessageCache>['updateMessageInCache'];
@@ -745,7 +748,7 @@ export function useStreamCallbacks({
         model_id: data.modelId,
         attachments: [],
         is_bot: true,
-        checkpoint_id: null,
+        checkpoint_id: data.checkpointId,
       };
 
       // Cache updates must run even for off-screen chats so returning

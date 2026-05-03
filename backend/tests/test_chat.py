@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.endpoints import chat as chat_endpoint
 from app.constants import MODELS, REDIS_KEY_CHAT_CONTEXT_USAGE
 from app.core.deps import get_agent_service, get_chat_service, get_queue_service
-from app.models.db_models.chat import Chat, Message, MessageEvent
+from app.models.db_models.chat import Chat, ChatCheckpoint, Message, MessageEvent
 from app.models.db_models.enums import MessageRole, MessageStreamStatus
 from app.models.db_models.user import User
 from app.models.db_models.workspace import Workspace
@@ -25,6 +25,7 @@ from tests.conftest import LoginClient, UserFactory
 from tests.helpers import (
     EndpointCache,
     FakeProviderFactory,
+    FakeSandboxProvider,
     create_authenticated_workspace,
 )
 
@@ -79,7 +80,7 @@ class ChatCompletionServiceOverride:
 
     async def initiate_chat_completion(
         self, request: ChatRequest, user: User
-    ) -> dict[str, UUID | int]:
+    ) -> dict[str, UUID | int | None]:
         self.requests.append(request)
         self.users.append(user)
         if self.fail:
@@ -88,6 +89,7 @@ class ChatCompletionServiceOverride:
             "chat_id": request.chat_id,
             "message_id": UUID("00000000-0000-0000-0000-000000000123"),
             "last_seq": 4,
+            "checkpoint_id": None,
         }
 
 
@@ -181,6 +183,27 @@ async def create_message_event_row(
     return event
 
 
+async def create_checkpoint_row(
+    db_session: AsyncSession,
+    chat: Chat,
+    assistant_message: Message,
+    *,
+    cwd: str | None = None,
+    pre_run_diff: str = "",
+) -> ChatCheckpoint:
+    checkpoint = ChatCheckpoint(
+        chat_id=chat.id,
+        assistant_message_id=assistant_message.id,
+        cwd=cwd,
+        base_head="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        pre_run_diff=pre_run_diff,
+    )
+    db_session.add(checkpoint)
+    await db_session.commit()
+    await db_session.refresh(checkpoint)
+    return checkpoint
+
+
 async def test_create_list_and_get_chat(
     client: AsyncClient,
     db_session: AsyncSession,
@@ -257,6 +280,7 @@ async def test_send_message_endpoint_passes_form_fields_to_chat_service(
         "chat_id": str(chat.id),
         "message_id": "00000000-0000-0000-0000-000000000123",
         "last_seq": 4,
+        "checkpoint_id": None,
     }
     request = chat_service.requests[0]
     assert request.prompt == "Ship this"
@@ -550,6 +574,127 @@ async def test_chat_messages_returns_only_owned_chat_messages(
     assert body["items"][0]["id"] == str(message.id)
     assert body["items"][0]["content_text"] == "Visible message"
     assert other_response.status_code == 403
+
+
+async def test_chat_messages_include_assistant_checkpoint_id(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_user: UserFactory,
+    login: LoginClient,
+) -> None:
+    headers, user, workspace = await create_authenticated_workspace(
+        db_session, create_user, login
+    )
+    chat = await create_chat_row(db_session, user, workspace)
+    assistant_message = await create_message_row(
+        db_session,
+        chat,
+        content="Changed files",
+        role=MessageRole.ASSISTANT,
+    )
+    checkpoint = await create_checkpoint_row(db_session, chat, assistant_message)
+
+    response = await client.get(
+        f"/api/v1/chat/chats/{chat.id}/messages", headers=headers
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["items"]) == 1
+    assert body["items"][0]["id"] == str(assistant_message.id)
+    assert body["items"][0]["checkpoint_id"] == str(checkpoint.id)
+
+
+async def test_restore_message_checkpoint_resets_workspace(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_user: UserFactory,
+    login: LoginClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = FakeSandboxProvider()
+    monkeypatch.setattr(
+        SandboxProvider,
+        "create_provider",
+        FakeProviderFactory(provider=provider),
+    )
+    headers, user, workspace = await create_authenticated_workspace(
+        db_session, create_user, login
+    )
+    chat = await create_chat_row(db_session, user, workspace)
+    assistant_message = await create_message_row(
+        db_session,
+        chat,
+        content="Changed files",
+        role=MessageRole.ASSISTANT,
+    )
+    await create_checkpoint_row(
+        db_session,
+        chat,
+        assistant_message,
+        cwd="packages/api",
+        pre_run_diff="diff --git a/app.py b/app.py\n",
+    )
+
+    response = await client.post(
+        f"/api/v1/chat/messages/{assistant_message.id}/checkpoint/restore-all",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"success": True, "output": "", "error": None}
+    assert len(provider.writes) == 1
+    sandbox_id, patch_path, patch_content = provider.writes[0]
+    assert sandbox_id == workspace.sandbox_id
+    assert patch_path.startswith("packages/api/.agentrove-checkpoint-")
+    assert patch_path.endswith(".patch")
+    assert patch_content == "diff --git a/app.py b/app.py\n"
+    commands = [command for _sandbox_id, command, _envs in provider.commands]
+    assert commands[-1].startswith("cd 'packages/api' && ")
+    assert "git reset --hard 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'" in commands[-1]
+    assert "git apply --whitespace=nowarn" in commands[-1]
+
+
+async def test_restore_message_checkpoint_rejects_other_users(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    create_user: UserFactory,
+    login: LoginClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = FakeSandboxProvider()
+    monkeypatch.setattr(
+        SandboxProvider,
+        "create_provider",
+        FakeProviderFactory(provider=provider),
+    )
+    _headers, user, workspace = await create_authenticated_workspace(
+        db_session, create_user, login
+    )
+    chat = await create_chat_row(db_session, user, workspace)
+    assistant_message = await create_message_row(
+        db_session,
+        chat,
+        content="Changed files",
+        role=MessageRole.ASSISTANT,
+    )
+    await create_checkpoint_row(db_session, chat, assistant_message)
+    other_headers, _other_user, _other_workspace = await create_authenticated_workspace(
+        db_session,
+        create_user,
+        login,
+        email="checkpoint-other@example.com",
+        username="checkpointother",
+    )
+
+    response = await client.post(
+        f"/api/v1/chat/messages/{assistant_message.id}/checkpoint/restore-all",
+        headers=other_headers,
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Checkpoint not found"
+    assert provider.commands == []
 
 
 async def test_chat_status_reports_active_stream_only_when_runtime_is_active(

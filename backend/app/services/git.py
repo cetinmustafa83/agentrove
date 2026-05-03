@@ -1,9 +1,9 @@
-import base64
 import posixpath
 import re
 import shlex
 from string import Template
 from typing import Literal, NamedTuple
+from uuid import uuid4
 
 from app.models.schemas.sandbox import (
     GitBranchesResponse,
@@ -29,8 +29,7 @@ GITHUB_REMOTE_RE = re.compile(
 
 GIT_IS_REPO_CMD = "git rev-parse --is-inside-work-tree 2>/dev/null"
 GIT_CURRENT_BRANCH_CMD = "git rev-parse --abbrev-ref HEAD 2>/dev/null"
-# Combined: emit HEAD on line 1 and `dirty`/`clean` marker on line 2 in one
-# round-trip so a clean tree skips the full diff capture below.
+# One round-trip so a clean tree (the common case) avoids the diff capture.
 GIT_CHECKPOINT_PROBE_CMD = (
     "git rev-parse HEAD 2>/dev/null && "
     '(test -z "$(git status --porcelain 2>/dev/null)" '
@@ -86,9 +85,20 @@ GIT_DIFF_ALL_TEMPLATE = Template(
     " || { git diff$ctx --cached 2>/dev/null; git diff$ctx 2>/dev/null; }; };"
     "$untracked"
 )
+GIT_CHECKPOINT_DIFF_ALL_TEMPLATE = Template(
+    "{ git diff --binary -U99999 HEAD 2>/dev/null"
+    " || { git diff --binary -U99999 --cached 2>/dev/null; "
+    "git diff --binary -U99999 2>/dev/null; }; };"
+    "$untracked"
+)
 GIT_UNTRACKED_DIFF_TEMPLATE = Template(
     " git ls-files --others --exclude-standard -z"
     " | xargs -0 -I{} git diff$ctx --no-index -- /dev/null {} 2>/dev/null"
+)
+GIT_CHECKPOINT_UNTRACKED_DIFF_TEMPLATE = (
+    " git ls-files --others --exclude-standard -z"
+    " | xargs -0 -I{} "
+    "git diff --binary -U99999 --no-index -- /dev/null {} 2>/dev/null"
 )
 # Diff HEAD against the merge-base with the default branch. Default branch is
 # detected via the remote HEAD symref, falling back to main/master/develop/
@@ -143,15 +153,19 @@ RESTORE_FILE_TEMPLATE = Template(
 )
 
 GIT_RESTORE_CHECKPOINT_ALL_TEMPLATE = Template(
-    GIT_CD_REPO_ROOT + "git reset --hard '$base_head' >/dev/null 2>&1 && "
-    "git clean -fd >/dev/null 2>&1 && "
-    "if [ -n '$patch' ]; then "
-    "tmp=$$(mktemp); "
-    "printf '%s' '$patch' > \"$$tmp\"; "
-    '{ base64 -d "$$tmp" 2>/dev/null || base64 -D "$$tmp"; } '
-    "| git apply --whitespace=nowarn 2>&1; "
-    'status=$$?; rm -f "$$tmp"; exit $$status; '
-    "fi"
+    "tmp=''; "
+    'if [ -n "$patch_file" ]; then '
+    'tmp=$$(mktemp) && cp $patch_file "$$tmp"; '
+    "status=$$?; rm -f $patch_file; "
+    'if [ $$status -ne 0 ]; then rm -f "$$tmp"; exit $$status; fi; '
+    'fi; cd "$$(git rev-parse --show-toplevel)" && '
+    "git reset --hard '$base_head' >/dev/null 2>&1; "
+    "status=$$?; "
+    "if [ $$status -eq 0 ]; then git clean -fd >/dev/null 2>&1; status=$$?; fi; "
+    'if [ $$status -eq 0 ] && [ -n "$$tmp" ]; then '
+    'git apply --whitespace=nowarn "$$tmp" 2>&1; status=$$?; '
+    "fi; "
+    'rm -f "$$tmp"; exit $$status'
 )
 
 
@@ -379,8 +393,14 @@ class GitService:
         if marker == "clean":
             return Checkpoint(base_head=head, pre_run_diff="")
 
-        diff = await self.get_diff(sandbox_id, "all", True, cwd)
-        return Checkpoint(base_head=head, pre_run_diff=diff.diff)
+        cmd = GIT_CHECKPOINT_DIFF_ALL_TEMPLATE.substitute(
+            untracked=GIT_CHECKPOINT_UNTRACKED_DIFF_TEMPLATE
+        )
+        result = await self.sandbox_service.execute_command(
+            sandbox_id,
+            f"{cd_prefix}{cmd}",
+        )
+        return Checkpoint(base_head=head, pre_run_diff=result.stdout)
 
     async def restore_checkpoint_all(
         self,
@@ -390,11 +410,21 @@ class GitService:
         pre_run_diff: str,
         cwd: str | None = None,
     ) -> GitCommandResponse:
-        self._validate_commit_ref(base_head)
-        patch = base64.b64encode(pre_run_diff.encode()).decode()
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", base_head):
+            raise ValueError("Invalid checkpoint commit")
+        patch_file = ""
+        if pre_run_diff:
+            name = f".agentrove-checkpoint-{uuid4().hex}.patch"
+            patch_path = posixpath.join(cwd, name) if cwd else name
+            await self.sandbox_service.provider.write_file(
+                sandbox_id, patch_path, pre_run_diff
+            )
+            patch_file = shlex.quote(
+                self.sandbox_service.provider.resolve_workspace_path(patch_path)
+            )
         cmd = GIT_RESTORE_CHECKPOINT_ALL_TEMPLATE.substitute(
             base_head=base_head,
-            patch=patch,
+            patch_file=patch_file,
         )
         return await self.run_command(sandbox_id, cmd, cwd)
 
@@ -524,8 +554,3 @@ class GitService:
             or "\x00" in path
         ):
             raise ValueError("Invalid file path")
-
-    @staticmethod
-    def _validate_commit_ref(ref: str) -> None:
-        if not re.fullmatch(r"[0-9a-fA-F]{40}", ref):
-            raise ValueError("Invalid checkpoint commit")
