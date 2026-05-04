@@ -233,6 +233,23 @@ export default function App() {
     });
   });
 
+  // Cmd+R / Ctrl+R reloads the webview — Tauri release builds disable this by default
+  useMountEffect(() => {
+    if (!isTauri()) return;
+
+    function handler(e: KeyboardEvent) {
+      const accel = e.metaKey || e.ctrlKey;
+      if (!accel || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== 'r') return;
+      e.preventDefault();
+      window.location.reload();
+    }
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  });
+
   // Open external links in the system browser — Tauri doesn't handle target="_blank" natively
   useMountEffect(() => {
     if (!isTauri()) return;
