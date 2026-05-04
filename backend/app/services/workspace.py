@@ -363,6 +363,10 @@ class WorkspaceService(BaseDbService[Workspace]):
             "clone",
             "--depth",
             "1",
+            # `--depth` implies `--single-branch`, which leaves only the default
+            # branch's remote-tracking ref — the branch selector then has nothing
+            # to list beyond `main`. Keep all branches visible at depth 1.
+            "--no-single-branch",
             git_url,
             str(workspace_dir),
             stdout=asyncio.subprocess.PIPE,
