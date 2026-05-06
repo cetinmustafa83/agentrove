@@ -78,6 +78,7 @@ export function LandingPage() {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!workspaces.length) return;
     if (
       initialWorkspaceId &&
       initialWorkspaceId !== consumedWorkspaceRef.current &&
@@ -85,18 +86,11 @@ export function LandingPage() {
     ) {
       consumedWorkspaceRef.current = initialWorkspaceId;
       setSelectedWorkspaceId(initialWorkspaceId);
+      return;
     }
-  }, [initialWorkspaceId, workspaces]);
-
-  useEffect(() => {
-    if (
-      selectedWorkspaceId &&
-      workspaces.length &&
-      !workspaces.some((ws) => ws.id === selectedWorkspaceId)
-    ) {
-      setSelectedWorkspaceId(null);
-    }
-  }, [workspaces, selectedWorkspaceId]);
+    if (selectedWorkspaceId && workspaces.some((ws) => ws.id === selectedWorkspaceId)) return;
+    setSelectedWorkspaceId(workspaces[0].id);
+  }, [initialWorkspaceId, workspaces, selectedWorkspaceId]);
 
   if (initialMessage && !consumedInitialMessageRef.current) {
     consumedInitialMessageRef.current = true;
