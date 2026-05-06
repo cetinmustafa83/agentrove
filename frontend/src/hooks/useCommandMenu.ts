@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useMountEffect } from '@/hooks/useMountEffect';
 import { useUIStore } from '@/store/uiStore';
+import { useChatStore } from '@/store/chatStore';
 import { useQueryClient } from '@tanstack/react-query';
 import { SHORTCUT_MAP, executeCommand } from '@/components/ui/CommandMenu';
 import { MOBILE_BREAKPOINT } from '@/config/constants';
@@ -34,6 +35,7 @@ export function useCommandMenu() {
       if (!cmd) return;
 
       if (cmd.hideOnMobile && window.innerWidth < MOBILE_BREAKPOINT) return;
+      if (cmd.requiresChat && !useChatStore.getState().currentChat) return;
 
       e.preventDefault();
       executeCommand(cmd, queryClient, navigate, true);

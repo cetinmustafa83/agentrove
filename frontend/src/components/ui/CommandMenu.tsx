@@ -68,6 +68,7 @@ interface ViewCommandItem {
   icon: React.ComponentType<{ className?: string }>;
   shortcut: string;
   hideOnMobile?: boolean;
+  requiresChat?: boolean;
 }
 
 interface ActionCommandItem {
@@ -77,6 +78,7 @@ interface ActionCommandItem {
   icon: React.ComponentType<{ className?: string }>;
   shortcut: string;
   hideOnMobile?: boolean;
+  requiresChat?: boolean;
 }
 
 type CommandItem = ViewCommandItem | ActionCommandItem;
@@ -84,21 +86,50 @@ type CommandItem = ViewCommandItem | ActionCommandItem;
 const VIEW_COMMANDS: ViewCommandItem[] = [
   { type: 'view', id: 'agent', label: 'Agent', icon: MessagesSquare, shortcut: 'a' },
   { type: 'view', id: 'editor', label: 'Editor', icon: Code, shortcut: 'e' },
-  { type: 'view', id: 'terminal', label: 'Terminal', icon: SquareTerminal, shortcut: 't' },
-  { type: 'view', id: 'diff', label: 'Diff', icon: GitCompareArrows, shortcut: 'd' },
-  { type: 'view', id: 'prReview', label: 'PR Review Inbox', icon: Inbox, shortcut: 'r' },
+  {
+    type: 'view',
+    id: 'terminal',
+    label: 'Terminal',
+    icon: SquareTerminal,
+    shortcut: 't',
+    requiresChat: true,
+  },
+  {
+    type: 'view',
+    id: 'diff',
+    label: 'Diff',
+    icon: GitCompareArrows,
+    shortcut: 'd',
+    requiresChat: true,
+  },
+  {
+    type: 'view',
+    id: 'prReview',
+    label: 'PR Review Inbox',
+    icon: Inbox,
+    shortcut: 'r',
+    requiresChat: true,
+  },
   { type: 'view', id: 'secrets', label: 'Secrets', icon: KeyRound, shortcut: 's' },
 ];
 
 const ACTION_COMMANDS: ActionCommandItem[] = [
   { type: 'action', id: 'new-thread', label: 'New thread', icon: MessageSquarePlus, shortcut: 'w' },
-  { type: 'action', id: 'new-sub-thread', label: 'New sub-thread', icon: GitBranch, shortcut: 'n' },
+  {
+    type: 'action',
+    id: 'new-sub-thread',
+    label: 'New sub-thread',
+    icon: GitBranch,
+    shortcut: 'n',
+    requiresChat: true,
+  },
   {
     type: 'action',
     id: 'create-commit',
     label: 'Create commit',
     icon: GitCommitHorizontal,
     shortcut: 'c',
+    requiresChat: true,
   },
   {
     type: 'action',
@@ -106,15 +137,31 @@ const ACTION_COMMANDS: ActionCommandItem[] = [
     label: 'Create pull request',
     icon: GitPullRequest,
     shortcut: 'l',
+    requiresChat: true,
   },
-  { type: 'action', id: 'create-branch', label: 'Create branch', icon: GitBranch, shortcut: 'h' },
-  { type: 'action', id: 'switch-branch', label: 'Switch branch', icon: GitBranch, shortcut: 'b' },
+  {
+    type: 'action',
+    id: 'create-branch',
+    label: 'Create branch',
+    icon: GitBranch,
+    shortcut: 'h',
+    requiresChat: true,
+  },
+  {
+    type: 'action',
+    id: 'switch-branch',
+    label: 'Switch branch',
+    icon: GitBranch,
+    shortcut: 'b',
+    requiresChat: true,
+  },
   {
     type: 'action',
     id: 'push-remote',
     label: 'Push to remote',
     icon: ArrowUpFromLine,
     shortcut: 'u',
+    requiresChat: true,
   },
   {
     type: 'action',
@@ -122,6 +169,7 @@ const ACTION_COMMANDS: ActionCommandItem[] = [
     label: 'Pull from remote',
     icon: ArrowDownFromLine,
     shortcut: 'j',
+    requiresChat: true,
   },
 ];
 
@@ -350,7 +398,7 @@ export function CommandMenu() {
   const activeLeafSet = useMemo(() => new Set(activeLeaves), [activeLeaves]);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { fileStructure, sandboxId } = useChatContext();
+  const { fileStructure, sandboxId, chatId } = useChatContext();
   const worktreeCwd = useChatStore((s) => s.currentChat?.worktree_cwd) ?? undefined;
 
   // Fetch branches whenever the menu is open so we can both render the branches mode and
@@ -377,10 +425,11 @@ export function CommandMenu() {
     () =>
       ALL_COMMANDS.filter((cmd) => {
         if (isMobile && cmd.hideOnMobile) return false;
+        if (cmd.requiresChat && !chatId) return false;
         if (cmd.id === 'switch-branch' && !canSwitchBranch) return false;
         return true;
       }),
-    [isMobile, canSwitchBranch],
+    [isMobile, canSwitchBranch, chatId],
   );
 
   const filteredCommands = useMemo(

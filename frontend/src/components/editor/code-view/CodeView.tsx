@@ -17,7 +17,6 @@ export interface CodeViewProps {
   onFileSelect: (file: FileStructure | null) => void;
   theme: string;
   sandboxId?: string;
-  chatId?: string;
   cwd?: string;
   onDownload?: () => void;
   isDownloading?: boolean;
@@ -32,7 +31,6 @@ export const CodeView = memo(function CodeView({
   onFileSelect,
   theme,
   sandboxId,
-  chatId,
   cwd,
   onDownload,
   isDownloading,
@@ -178,7 +176,6 @@ export const CodeView = memo(function CodeView({
             selectedFile={selectedFile}
             fileStructure={files}
             sandboxId={sandboxId}
-            chatId={chatId}
             onToggleFileTree={() => setShowMobileTree(true)}
             targetLine={targetLine}
           />
@@ -225,7 +222,6 @@ export const CodeView = memo(function CodeView({
               selectedFile={selectedFile}
               fileStructure={files}
               sandboxId={sandboxId}
-              chatId={chatId}
               onToggleFileTree={handleToggleFileTree}
               isFileTreeCollapsed={isFileTreeCollapsed}
               targetLine={targetLine}

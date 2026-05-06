@@ -2,7 +2,6 @@ import { memo, useState, useCallback } from 'react';
 import { logger } from '@/utils/logger';
 import { CodeView } from '../code-view/CodeView';
 import type { FileStructure } from '@/types/file-system.types';
-import type { Chat } from '@/types/chat.types';
 import { useResolvedTheme } from '@/hooks/useResolvedTheme';
 import { sandboxService } from '@/services/sandboxService';
 
@@ -10,7 +9,8 @@ export interface EditorProps {
   files: FileStructure[];
   selectedFile: FileStructure | null;
   onFileSelect: (file: FileStructure | null) => void;
-  currentChat?: Chat | null;
+  sandboxId?: string;
+  worktreeCwd?: string;
   isSandboxSyncing?: boolean;
   onRefresh?: () => void;
   isRefreshing?: boolean;
@@ -20,7 +20,8 @@ export const Editor = memo(function Editor({
   files,
   onFileSelect,
   selectedFile,
-  currentChat,
+  sandboxId,
+  worktreeCwd,
   isSandboxSyncing = false,
   onRefresh,
   isRefreshing = false,
@@ -30,18 +31,18 @@ export const Editor = memo(function Editor({
 
   const handleDownload = useCallback(async () => {
     try {
-      if (!currentChat?.sandbox_id) {
+      if (!sandboxId) {
         return false;
       }
 
       setIsDownloading(true);
 
-      const zipBlob = await sandboxService.downloadZip(currentChat.sandbox_id);
+      const zipBlob = await sandboxService.downloadZip(sandboxId);
 
       const url = URL.createObjectURL(zipBlob);
       const link = document.createElement('a');
       link.href = url;
-      const fileName = `sandbox_${currentChat.sandbox_id}_${crypto.randomUUID()}.zip`;
+      const fileName = `sandbox_${sandboxId}_${crypto.randomUUID()}.zip`;
       link.download = fileName;
 
       document.body.appendChild(link);
@@ -56,7 +57,7 @@ export const Editor = memo(function Editor({
     } finally {
       setIsDownloading(false);
     }
-  }, [currentChat?.sandbox_id]);
+  }, [sandboxId]);
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-surface-secondary dark:bg-surface-dark-secondary">
@@ -65,9 +66,8 @@ export const Editor = memo(function Editor({
         selectedFile={selectedFile}
         onFileSelect={onFileSelect}
         theme={theme}
-        sandboxId={currentChat?.sandbox_id}
-        chatId={currentChat?.id}
-        cwd={currentChat?.worktree_cwd ?? undefined}
+        sandboxId={sandboxId}
+        cwd={worktreeCwd}
         onDownload={handleDownload}
         isDownloading={isDownloading}
         isSandboxSyncing={isSandboxSyncing}
