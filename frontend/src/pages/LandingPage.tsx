@@ -1,4 +1,13 @@
-import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
+import {
+  useState,
+  useRef,
+  useMemo,
+  useCallback,
+  useEffect,
+  ReactNode,
+  lazy,
+  Suspense,
+} from 'react';
 import { useMountEffect } from '@/hooks/useMountEffect';
 import { useNavigate, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -23,6 +32,20 @@ import { useSettingsQuery } from '@/hooks/queries/useSettingsQueries';
 import { ChatProvider } from '@/contexts/ChatContext';
 import { Button } from '@/components/ui/primitives/Button';
 import { buildFileStructureFromSandboxFiles } from '@/utils/file';
+import { SplitViewContainer } from '@/components/ui/SplitViewContainer';
+import { CommandMenu } from '@/components/ui/CommandMenu';
+import { useCommandMenu } from '@/hooks/useCommandMenu';
+import { useEditorState } from '@/hooks/useEditorState';
+import { usePendingFileOpen } from '@/hooks/usePendingFileOpen';
+import { viewLoadingFallback } from '@/components/ui/shared/ViewLoadingFallback';
+import type { ViewType } from '@/types/ui.types';
+
+const Editor = lazy(() =>
+  import('@/components/editor/editor-core/Editor').then((m) => ({ default: m.Editor })),
+);
+const SecretsView = lazy(() =>
+  import('@/components/sandbox/secrets/SecretsView').then((m) => ({ default: m.SecretsView })),
+);
 
 const EXAMPLE_PROMPTS = [
   'Build a REST API with authentication',
@@ -33,6 +56,7 @@ const EXAMPLE_PROMPTS = [
 export function LandingPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  useCommandMenu();
   const attachedFiles = useChatStore((state) => state.attachedFiles);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const { selectedModelId, selectModel } = useModelSelection({
@@ -91,14 +115,28 @@ export function LandingPage() {
     ? workspaces.find((ws) => ws.id === selectedWorkspaceId)?.sandbox_id
     : undefined;
 
-  const { data: filesMetadata = [] } = useFilesMetadataQuery(selectedSandboxId, {
-    enabled: isAuthenticated && !!selectedSandboxId,
-  });
+  const { data: filesMetadata = [], refetch: refetchFilesMetadata } = useFilesMetadataQuery(
+    selectedSandboxId,
+    {
+      enabled: isAuthenticated && !!selectedSandboxId,
+    },
+  );
 
   const fileStructure = useMemo(
     () => buildFileStructureFromSandboxFiles(filesMetadata, []),
     [filesMetadata],
   );
+
+  const { selectedFile, setSelectedFile, isRefreshing, handleRefresh, handleFileSelect } =
+    useEditorState(refetchFilesMetadata);
+
+  const prevSandboxIdRef = useRef(selectedSandboxId);
+  if (prevSandboxIdRef.current !== selectedSandboxId) {
+    prevSandboxIdRef.current = selectedSandboxId;
+    setSelectedFile(null);
+  }
+
+  usePendingFileOpen(fileStructure, setSelectedFile);
 
   const { data: settings } = useSettingsQuery({
     enabled: isAuthenticated,
@@ -106,7 +144,9 @@ export function LandingPage() {
 
   useMountEffect(() => {
     useChatStore.getState().setCurrentChat(null);
-    useUIStore.getState().exitSplitMode();
+    // Reset to the agent (workspace selector) leaf — a stale split layout from a prior chat
+    // would otherwise persist into the landing screen.
+    useUIStore.getState().setCurrentView('agent');
   });
 
   const handleFileAttach = useCallback((files: File[]) => {
@@ -180,57 +220,107 @@ export function LandingPage() {
 
   useLayoutSidebar(sidebarContent);
 
+  const renderView = useCallback(
+    (view: ViewType): ReactNode => {
+      switch (view) {
+        case 'agent':
+          return (
+            <div className="flex h-full w-full items-center justify-center px-4 pb-10">
+              <div className="w-full max-w-2xl">
+                <div className="relative z-30 mb-2 flex items-center gap-1 px-4 sm:px-6">
+                  <WorkspaceSelector
+                    selectedWorkspaceId={selectedWorkspaceId}
+                    onWorkspaceChange={setSelectedWorkspaceId}
+                    enabled={isAuthenticated}
+                  />
+                  <WorktreeToggle disabled={isLoading} />
+                </div>
+
+                <ChatInput
+                  message={message}
+                  setMessage={setMessage}
+                  onSubmit={handleNewChat}
+                  onAttach={handleFileAttach}
+                  attachedFiles={attachedFiles}
+                  isLoading={isLoading}
+                  showLoadingSpinner={true}
+                  selectedModelId={selectedModelId}
+                  onModelChange={selectModel}
+                  showTip={false}
+                  placeholder="Message Agentrove... (@ to mention, / for commands)"
+                />
+
+                <div className="mt-4 flex flex-wrap justify-center gap-2 px-4 sm:px-6">
+                  {EXAMPLE_PROMPTS.map((prompt) => (
+                    <Button
+                      key={prompt}
+                      type="button"
+                      variant="unstyled"
+                      onClick={() => setMessage(prompt)}
+                      className="rounded-lg border border-border/50 px-3 py-2 text-2xs text-text-tertiary transition-colors duration-200 hover:border-border-hover hover:bg-surface-hover hover:text-text-primary dark:border-border-dark/50 dark:text-text-dark-tertiary dark:hover:border-border-dark-hover dark:hover:bg-surface-dark-hover dark:hover:text-text-dark-primary"
+                    >
+                      {prompt}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        case 'editor':
+          return (
+            <Suspense fallback={viewLoadingFallback}>
+              <Editor
+                files={fileStructure}
+                selectedFile={selectedFile}
+                onFileSelect={handleFileSelect}
+                sandboxId={selectedSandboxId}
+                isSandboxSyncing={false}
+                onRefresh={handleRefresh}
+                isRefreshing={isRefreshing}
+              />
+            </Suspense>
+          );
+        case 'secrets':
+          return (
+            <Suspense fallback={viewLoadingFallback}>
+              <SecretsView sandboxId={selectedSandboxId} />
+            </Suspense>
+          );
+        default:
+          return null;
+      }
+    },
+    [
+      attachedFiles,
+      handleFileAttach,
+      handleNewChat,
+      isAuthenticated,
+      isLoading,
+      message,
+      selectModel,
+      selectedModelId,
+      selectedWorkspaceId,
+      fileStructure,
+      selectedFile,
+      handleFileSelect,
+      selectedSandboxId,
+      handleRefresh,
+      isRefreshing,
+    ],
+  );
+
   return (
-    <div className="flex h-full flex-col">
-      <div className="relative flex flex-1">
-        <div className="flex flex-1 items-center justify-center px-4 pb-10">
-          <div className="w-full max-w-2xl">
-            <div className="relative z-30 mb-2 flex items-center gap-1 px-4 sm:px-6">
-              <WorkspaceSelector
-                selectedWorkspaceId={selectedWorkspaceId}
-                onWorkspaceChange={setSelectedWorkspaceId}
-                enabled={isAuthenticated}
-              />
-              <WorktreeToggle disabled={isLoading} />
-            </div>
-
-            <ChatProvider
-              fileStructure={fileStructure}
-              customSkills={workspaceResources?.skills}
-              builtinSlashCommands={workspaceResources?.builtin_slash_commands}
-              personas={settings?.personas}
-            >
-              <ChatInput
-                message={message}
-                setMessage={setMessage}
-                onSubmit={handleNewChat}
-                onAttach={handleFileAttach}
-                attachedFiles={attachedFiles}
-                isLoading={isLoading}
-                showLoadingSpinner={true}
-                selectedModelId={selectedModelId}
-                onModelChange={selectModel}
-                showTip={false}
-                placeholder="Message Agentrove... (@ to mention, / for commands)"
-              />
-            </ChatProvider>
-
-            <div className="mt-4 flex flex-wrap justify-center gap-2 px-4 sm:px-6">
-              {EXAMPLE_PROMPTS.map((prompt) => (
-                <Button
-                  key={prompt}
-                  type="button"
-                  variant="unstyled"
-                  onClick={() => setMessage(prompt)}
-                  className="rounded-lg border border-border/50 px-3 py-2 text-2xs text-text-tertiary transition-colors duration-200 hover:border-border-hover hover:bg-surface-hover hover:text-text-primary dark:border-border-dark/50 dark:text-text-dark-tertiary dark:hover:border-border-dark-hover dark:hover:bg-surface-dark-hover dark:hover:text-text-dark-primary"
-                >
-                  {prompt}
-                </Button>
-              ))}
-            </div>
-          </div>
-        </div>
+    <ChatProvider
+      sandboxId={selectedSandboxId}
+      fileStructure={fileStructure}
+      customSkills={workspaceResources?.skills}
+      builtinSlashCommands={workspaceResources?.builtin_slash_commands}
+      personas={settings?.personas}
+    >
+      <div className="flex h-full flex-1 overflow-hidden bg-surface text-text-primary dark:bg-surface-dark dark:text-text-dark-primary">
+        <SplitViewContainer renderView={renderView} />
       </div>
-    </div>
+      <CommandMenu />
+    </ChatProvider>
   );
 }

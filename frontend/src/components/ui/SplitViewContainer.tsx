@@ -1,18 +1,12 @@
 import { memo, lazy, Suspense, ReactNode } from 'react';
 import { useUIStore } from '@/store/uiStore';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { Spinner } from '@/components/ui/primitives/Spinner';
 import { isMosaicSplitNode } from '@/utils/mosaicHelpers';
+import { viewLoadingFallback } from '@/components/ui/shared/ViewLoadingFallback';
 import type { ViewType } from '@/types/ui.types';
 
 const MosaicSplitView = lazy(() =>
   import('@/components/ui/MosaicSplitView').then((m) => ({ default: m.MosaicSplitView })),
-);
-
-const mosaicFallback = (
-  <div className="flex h-full w-full items-center justify-center bg-surface-secondary dark:bg-surface-dark-secondary">
-    <Spinner size="md" className="text-text-quaternary dark:text-text-dark-quaternary" />
-  </div>
 );
 
 interface SplitViewContainerProps {
@@ -34,7 +28,7 @@ export const SplitViewContainer = memo(function SplitViewContainer({
   }
 
   return (
-    <Suspense fallback={mosaicFallback}>
+    <Suspense fallback={viewLoadingFallback}>
       <MosaicSplitView mosaicLayout={mosaicLayout} renderView={renderView} />
     </Suspense>
   );

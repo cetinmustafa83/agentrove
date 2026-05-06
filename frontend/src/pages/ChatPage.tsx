@@ -8,11 +8,12 @@ import { SplitViewContainer } from '@/components/ui/SplitViewContainer';
 import { CommandMenu } from '@/components/ui/CommandMenu';
 import { useCommandMenu } from '@/hooks/useCommandMenu';
 import { useActiveViews } from '@/hooks/useActiveViews';
-import { Spinner } from '@/components/ui/primitives/Spinner';
+import { viewLoadingFallback } from '@/components/ui/shared/ViewLoadingFallback';
 import type { ViewType } from '@/types/ui.types';
 import { Chat as ChatComponent } from '@/components/chat/chat-window/Chat';
 import { ChatSessionOrchestrator } from '@/components/chat/chat-window/ChatSessionOrchestrator';
 import { useEditorState } from '@/hooks/useEditorState';
+import { usePendingFileOpen } from '@/hooks/usePendingFileOpen';
 import { useChatData } from '@/hooks/useChatData';
 import { useSandboxFiles } from '@/hooks/useSandboxFiles';
 import {
@@ -20,7 +21,6 @@ import {
   useWorkspaceResourcesQuery,
 } from '@/hooks/queries/useWorkspaceQueries';
 import { useSettingsQuery } from '@/hooks/queries/useSettingsQueries';
-import { findFileByToolPath } from '@/utils/file';
 import { ChatProvider } from '@/contexts/ChatContext';
 import { CreateSubThreadDialog } from '@/components/chat/sub-threads/CreateSubThreadDialog';
 
@@ -51,12 +51,6 @@ const CreateCommitDialog = lazy(() =>
 );
 const CreatePRDialog = lazy(() =>
   import('@/components/chat/github/CreatePRDialog').then((m) => ({ default: m.CreatePRDialog })),
-);
-
-const viewLoadingFallback = (
-  <div className="flex h-full w-full items-center justify-center bg-surface-secondary dark:bg-surface-dark-secondary">
-    <Spinner size="md" className="text-text-quaternary dark:text-text-dark-quaternary" />
-  </div>
 );
 
 export function ChatPage() {
@@ -134,15 +128,7 @@ export function ChatPage() {
     });
   }
 
-  const pendingFilePath = useUIStore((s) => s.pendingFilePath);
-
-  useEffect(() => {
-    if (!pendingFilePath || fileStructure.length === 0) return;
-
-    const file = findFileByToolPath(fileStructure, pendingFilePath);
-    setSelectedFile(file ?? { path: pendingFilePath, type: 'file', content: '' });
-    useUIStore.setState({ pendingFilePath: null });
-  }, [pendingFilePath, setSelectedFile, fileStructure]);
+  usePendingFileOpen(fileStructure, setSelectedFile);
 
   const handleChatSelect = useCallback(
     (selectedChatId: string) => {
@@ -193,7 +179,8 @@ export function ChatPage() {
                 files={fileStructure}
                 selectedFile={selectedFile}
                 onFileSelect={handleFileSelect}
-                currentChat={currentChat}
+                sandboxId={currentChat?.sandbox_id}
+                worktreeCwd={worktreeCwd}
                 isSandboxSyncing={isFileMetadataLoading}
                 onRefresh={handleRefresh}
                 isRefreshing={isRefreshing}

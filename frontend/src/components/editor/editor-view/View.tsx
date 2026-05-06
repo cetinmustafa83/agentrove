@@ -16,7 +16,6 @@ export interface ViewProps {
   selectedFile: FileStructure | null;
   fileStructure?: FileStructure[];
   sandboxId?: string;
-  chatId?: string;
   onToggleFileTree?: () => void;
   isFileTreeCollapsed?: boolean;
   targetLine?: { path: string; line: number; nonce: number } | null;
@@ -26,7 +25,6 @@ export const View = memo(function View({
   selectedFile,
   fileStructure = [],
   sandboxId,
-  chatId,
   onToggleFileTree,
   isFileTreeCollapsed,
   targetLine,
@@ -49,7 +47,7 @@ export const View = memo(function View({
     isLoading: isLoadingContent,
     error: fileContentError,
   } = useFileContentQuery(sandboxId, selectedFile?.path, {
-    enabled: !!sandboxId && !!chatId && !!selectedFile?.path,
+    enabled: !!sandboxId && !!selectedFile?.path,
     retry: 1,
   });
 
@@ -120,7 +118,7 @@ export const View = memo(function View({
   }, []);
 
   const handleUpdateFile = useCallback(async () => {
-    if (!selectedFile || !sandboxId || !chatId || !hasUnsavedChanges) return;
+    if (!selectedFile || !sandboxId || !hasUnsavedChanges) return;
 
     updateFileMutation.mutate(
       {
@@ -139,7 +137,7 @@ export const View = memo(function View({
         },
       },
     );
-  }, [selectedFile, sandboxId, chatId, currentContent, hasUnsavedChanges, updateFileMutation]);
+  }, [selectedFile, sandboxId, currentContent, hasUnsavedChanges, updateFileMutation]);
 
   const handleEditorMount = useCallback(
     (editor: monaco.editor.IStandaloneCodeEditor, monaco: typeof import('monaco-editor')) => {
