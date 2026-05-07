@@ -116,6 +116,32 @@ function fetchNode() {
   writeStamp('node', NODE_STAMP);
 }
 
+// Tauri's resource bundler dereferences symlinks when copying the sidecar
+// into the .app, turning `bin/npx` (a symlink to ../lib/node_modules/npm/bin/npx-cli.js)
+// into a verbatim copy of that script. Its `require('../lib/cli.js')` then
+// resolves relative to bin/ instead of lib/node_modules/npm/bin/ and crashes.
+// Replace each symlink with a bash launcher that invokes the real script
+// through the bundled node — survives any copy/bundle step.
+function replaceNodeShims() {
+  const shims = [
+    { name: 'npm', target: 'lib/node_modules/npm/bin/npm-cli.js' },
+    { name: 'npx', target: 'lib/node_modules/npm/bin/npx-cli.js' },
+    { name: 'corepack', target: 'lib/node_modules/corepack/dist/corepack.js' },
+  ];
+  for (const { name, target } of shims) {
+    const shimPath = join(nodeDir, 'bin', name);
+    if (!existsSync(join(nodeDir, target))) continue;
+    rmSync(shimPath, { force: true });
+    writeFileSync(
+      shimPath,
+      '#!/bin/bash\n' +
+        'SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\n' +
+        `exec "$SCRIPT_DIR/node" "$SCRIPT_DIR/../${target}" "$@"\n`,
+    );
+    chmodSync(shimPath, 0o755);
+  }
+}
+
 function fetchRipgrep() {
   const innerDir = `ripgrep-${RIPGREP_VERSION}-${ARCH_TRIPLE}`;
   const url = `https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/${innerDir}.tar.gz`;
@@ -246,6 +272,7 @@ function run() {
   const nodeChanged = !upToDate('node', NODE_STAMP, nodeBin, npmBin);
   if (nodeChanged) fetchNode();
   else console.log('Node already installed, skipping download.');
+  replaceNodeShims();
 
   if (!nodeChanged && upToDate('acp', ACP_STAMP, claudeAcpBin, codexAcpBin)) {
     console.log('ACP adapters already installed, skipping install.');
