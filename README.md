@@ -49,19 +49,6 @@ docker compose up -d
 
 Open [http://localhost:3000](http://localhost:3000).
 
-Useful commands:
-
-```bash
-docker compose logs -f
-docker compose down
-```
-
-Default ports:
-
-- Frontend: `3000`
-- Backend API: `8080`
-- Redis: `6379`
-
 ## Desktop
 
 Agentrove also has a macOS desktop app built with Tauri. It starts a bundled Python backend sidecar on an available `127.0.0.1` port and connects the frontend to it at launch.
