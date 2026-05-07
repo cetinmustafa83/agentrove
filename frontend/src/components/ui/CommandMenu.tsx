@@ -107,7 +107,7 @@ const VIEW_COMMANDS: ViewCommandItem[] = [
     id: 'prReview',
     label: 'PR Review Inbox',
     icon: Inbox,
-    shortcut: 'r',
+    shortcut: 'i',
     requiresChat: true,
   },
   { type: 'view', id: 'secrets', label: 'Secrets', icon: KeyRound, shortcut: 's' },
